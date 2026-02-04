@@ -1,0 +1,18 @@
+<div class="max-w-md mx-auto px-6 py-16" style="view-transition-name: page-content;">
+  <div class="card bg-base-100 shadow-sm">
+    <div class="card-body text-center">
+      <div class="text-5xl mb-4">:(</div>
+      <h1 class="text-xl font-bold mb-2">Invalid Invite</h1>
+      <p class="text-base-content/60 mb-6">
+        <% if @reason == "expired" %>
+          This invite link has expired. Ask for a new one!
+        <% elsif @reason == "fully used" %>
+          This invite link has reached its maximum uses.
+        <% else %>
+          This invite link is not valid or doesn't exist.
+        <% end %>
+      </p>
+      <a href="/" class="btn btn-outline">Go Home</a>
+    </div>
+  </div>
+</div>

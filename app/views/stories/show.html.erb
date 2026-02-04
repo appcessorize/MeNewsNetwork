@@ -1,0 +1,167 @@
+<div class="max-w-4xl mx-auto px-6 py-8" style="view-transition-name: page-content;">
+  <!-- Header -->
+  <header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4">
+    <div class="flex-1 gap-3">
+      <a href="<%= stories_path %>" class="btn btn-ghost btn-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd" />
+        </svg>
+        Back
+      </a>
+      <h1 style="font-weight: 900; font-style: italic; font-size: 1.25rem;">STORY</h1>
+    </div>
+    <div class="flex items-center gap-3">
+      <% if @story.broadcast_at.present? %>
+        <span class="badge badge-primary badge-sm">Broadcasts <%= @story.broadcast_at.strftime("%I:%M %p") %></span>
+      <% end %>
+      <% if @story.expired? %>
+        <span class="badge badge-error badge-sm">Expired</span>
+      <% else %>
+        <span class="badge badge-success badge-sm">Live</span>
+      <% end %>
+    </div>
+  </header>
+
+  <!-- Story Card -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="avatar placeholder">
+          <% if @story.user.avatar_url.present? %>
+            <div class="w-12 rounded-full">
+              <img src="<%= @story.user.avatar_url %>" alt="" referrerpolicy="no-referrer" />
+            </div>
+          <% else %>
+            <div class="bg-neutral text-neutral-content w-12 rounded-full">
+              <span class="text-lg"><%= @story.user.name&.first&.upcase %></span>
+            </div>
+          <% end %>
+        </div>
+        <div>
+          <h2 class="font-bold text-lg"><%= @story.title %></h2>
+          <div class="flex items-center gap-2 text-sm text-base-content/50">
+            <span><%= @story.user.name %></span>
+            <span>&middot;</span>
+            <span><%= @story.created_at.strftime("%B %d, %Y at %I:%M %p") %></span>
+            <% if @story.story_type.present? %>
+              <span class="badge badge-sm badge-outline"><%= @story.story_type %></span>
+            <% end %>
+          </div>
+        </div>
+      </div>
+
+      <% if @story.body.present? %>
+        <div class="prose max-w-none">
+          <p><%= @story.body %></p>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <!-- AI Analysis Card -->
+  <div class="card bg-base-100 shadow-sm mb-6 border-l-4 border-info">
+    <div class="card-body">
+      <div class="flex items-center gap-2 mb-3">
+        <div class="avatar placeholder">
+          <div class="bg-info text-info-content w-10 rounded-full flex items-center justify-center">
+            <span class="text-2xl leading-none">🤖</span>
+          </div>
+        </div>
+        <div>
+          <h3 class="font-bold text-sm">Gemini Analysis</h3>
+          <span class="text-xs text-base-content/50">AI-powered content analysis</span>
+        </div>
+      </div>
+      <% if @story.analysis.present? %>
+        <div class="bg-info/5 rounded-lg p-4">
+          <p class="text-sm leading-relaxed"><%= @story.analysis %></p>
+        </div>
+      <% else %>
+        <div class="bg-base-200 rounded-lg p-4 text-center">
+          <p class="text-sm text-base-content/50">Analysis will appear here once Gemini processes this story's content.</p>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <!-- Comments Section -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h3 class="font-bold text-sm uppercase tracking-wider text-base-content/50 mb-4">
+        Comments (<%= @comments.size %>)
+      </h3>
+
+      <% if @comments.any? %>
+        <div class="space-y-1">
+          <% @comments.each do |comment| %>
+            <div class="chat <%= comment.user == current_user ? 'chat-end' : 'chat-start' %>">
+              <div class="chat-image avatar placeholder">
+                <% if comment.user.avatar_url.present? %>
+                  <div class="w-8 rounded-full">
+                    <img src="<%= comment.user.avatar_url %>" alt="" referrerpolicy="no-referrer" />
+                  </div>
+                <% else %>
+                  <div class="bg-neutral text-neutral-content w-8 rounded-full">
+                    <span class="text-xs"><%= comment.user.name&.first&.upcase %></span>
+                  </div>
+                <% end %>
+              </div>
+              <div class="chat-header text-xs text-base-content/50 mb-1">
+                <%= comment.user.name %>
+                <time class="text-xs opacity-50"><%= time_ago_in_words(comment.created_at) %> ago</time>
+              </div>
+              <div class="chat-bubble <%= comment.user == current_user ? 'chat-bubble-primary' : '' %>">
+                <% if comment.emoji.present? %>
+                  <span class="text-lg mr-1"><%= comment.emoji %></span>
+                <% end %>
+                <%= comment.body %>
+              </div>
+              <% if comment.comment_type.present? && comment.comment_type != "text" %>
+                <div class="chat-footer text-xs opacity-50">
+                  <span class="badge badge-xs badge-ghost"><%= comment.comment_type %></span>
+                </div>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      <% else %>
+        <div class="text-center py-6">
+          <p class="text-sm text-base-content/50">No comments yet. Be the first to share your thoughts!</p>
+        </div>
+      <% end %>
+
+      <!-- Comment Form -->
+      <div class="divider my-3"></div>
+      <%= form_with model: [@story, Comment.new], class: "space-y-3" do |f| %>
+        <!-- Emoji Picker -->
+        <div class="flex flex-wrap gap-2">
+          <% Comment::EMOJI_OPTIONS.each do |emoji| %>
+            <label class="swap">
+              <input type="radio" name="comment[emoji]" value="<%= emoji %>" class="hidden emoji-radio" />
+              <span class="btn btn-sm btn-ghost swap-off"><%= emoji %></span>
+              <span class="btn btn-sm btn-active swap-on"><%= emoji %></span>
+            </label>
+          <% end %>
+        </div>
+
+        <!-- Comment Type Selector -->
+        <div class="flex gap-2">
+          <% %w[text audio video image].each do |type| %>
+            <label class="flex items-center gap-1 cursor-pointer">
+              <input type="radio" name="comment[comment_type]" value="<%= type %>"
+                     class="radio radio-xs radio-primary" <%= type == "text" ? "checked" : "" %> />
+              <span class="text-xs capitalize"><%= type %></span>
+            </label>
+          <% end %>
+        </div>
+
+        <!-- Comment Body -->
+        <div class="join w-full">
+          <%= f.text_area :body, placeholder: "Add a comment...", rows: 1,
+              class: "textarea textarea-bordered join-item flex-1 min-h-[42px] resize-none" %>
+          <%= f.submit "Post", class: "btn btn-primary join-item" %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>

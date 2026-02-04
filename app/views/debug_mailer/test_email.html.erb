@@ -1,0 +1,23 @@
+<div class="header">NEWSROOM</div>
+
+<p style="font-size: 16px; margin-bottom: 16px;">
+  This is a test email from your Newsroom application.
+</p>
+
+<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+  <tr>
+    <td style="padding: 8px 12px; background: #f4f4f5; border-radius: 6px; font-size: 13px; color: #52525b;">
+      <strong>Sent to:</strong> <%= @to %><br>
+      <strong>Sent at:</strong> <%= @sent_at.strftime("%B %d, %Y at %I:%M %p %Z") %><br>
+      <strong>Delivery method:</strong> Resend
+    </td>
+  </tr>
+</table>
+
+<p style="font-size: 14px; color: #71717a;">
+  If you received this email, your Resend integration is working correctly.
+</p>
+
+<a href="<%= root_url %>" style="display: inline-block; padding: 10px 20px; background: #6366f1; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; margin-top: 8px;">
+  Open Newsroom
+</a>

@@ -1,0 +1,70 @@
+<div class="max-w-md mx-auto px-6 py-16" style="view-transition-name: page-content;">
+  <div class="card bg-base-100 shadow-sm">
+    <div class="card-body">
+      <h1 class="text-2xl font-bold text-center mb-2">Debug Login</h1>
+      <p class="text-center text-base-content/60 text-sm mb-6">
+        Development only - create test accounts
+      </p>
+
+      <% if flash[:alert].present? %>
+        <div role="alert" class="alert alert-error mb-4">
+          <span><%= flash[:alert] %></span>
+        </div>
+      <% end %>
+
+      <%= form_with url: auth_debug_path, method: :post, class: "space-y-4" do %>
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Email</span>
+          </label>
+          <input type="email" name="email" placeholder="test1@example.com"
+                 class="input input-bordered w-full" required autofocus>
+        </div>
+
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Name (optional)</span>
+          </label>
+          <input type="text" name="name" placeholder="Test User"
+                 class="input input-bordered w-full">
+        </div>
+
+        <button type="submit" class="btn btn-primary w-full">
+          Login as Test User
+        </button>
+      <% end %>
+
+      <div class="divider">Quick Test Accounts</div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <%= form_with url: auth_debug_path, method: :post do %>
+          <input type="hidden" name="email" value="alice@test.com">
+          <input type="hidden" name="name" value="Alice">
+          <button type="submit" class="btn btn-outline btn-sm w-full">Alice</button>
+        <% end %>
+
+        <%= form_with url: auth_debug_path, method: :post do %>
+          <input type="hidden" name="email" value="bob@test.com">
+          <input type="hidden" name="name" value="Bob">
+          <button type="submit" class="btn btn-outline btn-sm w-full">Bob</button>
+        <% end %>
+
+        <%= form_with url: auth_debug_path, method: :post do %>
+          <input type="hidden" name="email" value="carol@test.com">
+          <input type="hidden" name="name" value="Carol">
+          <button type="submit" class="btn btn-outline btn-sm w-full">Carol</button>
+        <% end %>
+
+        <%= form_with url: auth_debug_path, method: :post do %>
+          <input type="hidden" name="email" value="dave@test.com">
+          <input type="hidden" name="name" value="Dave">
+          <button type="submit" class="btn btn-outline btn-sm w-full">Dave</button>
+        <% end %>
+      </div>
+
+      <div class="mt-6 text-center">
+        <a href="/" class="link link-ghost text-sm">&larr; Back to Home</a>
+      </div>
+    </div>
+  </div>
+</div>

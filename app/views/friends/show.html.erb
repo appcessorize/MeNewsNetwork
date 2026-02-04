@@ -1,0 +1,127 @@
+<% content_for :head do %>
+  <%= javascript_import_module_tag "friends" %>
+<% end %>
+
+<div class="max-w-2xl mx-auto px-6 py-8" style="view-transition-name: page-content;">
+  <!-- Header -->
+  <header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4">
+    <div class="flex-1 flex items-center gap-4">
+      <a href="/newsroom" class="btn btn-ghost btn-sm">&larr; Back</a>
+      <h1 style="font-weight: 900; font-style: italic; font-size: 1.75rem;">FRIENDS</h1>
+    </div>
+    <div class="flex items-center gap-3">
+      <%= user_avatar(current_user) %>
+      <span class="text-sm"><%= current_user&.name %></span>
+    </div>
+  </header>
+
+  <% if flash[:notice].present? %>
+    <div role="alert" class="alert alert-success mb-6">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <span><%= flash[:notice] %></span>
+    </div>
+  <% end %>
+
+  <% if flash[:alert].present? %>
+    <div role="alert" class="alert alert-error mb-6">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <span><%= flash[:alert] %></span>
+    </div>
+  <% end %>
+
+  <% if @has_groups %>
+    <!-- ══════════ HAS GROUPS STATE ══════════ -->
+    <div class="card bg-base-100 shadow-sm mb-6">
+      <div class="card-body">
+        <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+          <%= @group.name %>
+        </h2>
+
+        <!-- Invite Section -->
+        <div class="mt-4">
+          <p class="text-sm text-base-content/60 mb-3">Invite friends to join your group:</p>
+
+          <div class="join w-full">
+            <input type="text" id="invite-url-input" readonly
+                   placeholder="Click Generate to create invite link"
+                   class="input input-bordered join-item flex-1 bg-base-200">
+            <button id="btn-generate-invite" type="button" class="btn btn-primary join-item">
+              Generate Link
+            </button>
+          </div>
+
+          <div id="invite-actions" class="flex gap-2 mt-3" hidden>
+            <button id="btn-copy-invite" type="button" class="btn btn-sm btn-outline">
+              Copy Link
+            </button>
+            <button id="btn-share-invite" type="button" class="btn btn-sm btn-outline">
+              Share
+            </button>
+            <span id="invite-expires" class="text-xs text-base-content/40 self-center ml-auto"></span>
+          </div>
+        </div>
+
+        <div class="divider my-4"></div>
+
+        <!-- Members List -->
+        <h3 class="text-sm font-semibold mb-3">Members (<%= @members.count %>)</h3>
+        <div class="space-y-2">
+          <% @members.each do |member| %>
+            <div class="flex items-center gap-3 p-2 rounded-lg hover:bg-base-200">
+              <%= user_avatar(member, size: "w-10") %>
+              <div>
+                <p class="font-medium text-sm"><%= member.name %></p>
+                <p class="text-xs text-base-content/50"><%= member.email %></p>
+              </div>
+              <% if member == @group.creator %>
+                <span class="badge badge-sm badge-ghost ml-auto">Creator</span>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+
+  <% else %>
+    <!-- ══════════ ONBOARDING STATE ══════════ -->
+    <div class="card bg-base-100 shadow-sm mb-6">
+      <div class="card-body text-center py-12">
+        <h2 class="text-xl font-semibold mb-2">Welcome to Friends!</h2>
+        <p class="text-base-content/60 mb-8">
+          Connect with friends and share your video newsroom experience.
+        </p>
+
+        <!-- Option 1: Have an invite -->
+        <div class="mb-8">
+          <h3 class="font-medium mb-3">Have you been invited?</h3>
+          <div class="join w-full max-w-md mx-auto">
+            <input type="text" id="invite-code-input"
+                   placeholder="Paste invite link or code"
+                   class="input input-bordered join-item flex-1">
+            <button id="btn-join-group" type="button" class="btn btn-primary join-item">
+              Join Group
+            </button>
+          </div>
+        </div>
+
+        <div class="divider">OR</div>
+
+        <!-- Option 2: Create new group -->
+        <div class="mt-6">
+          <h3 class="font-medium mb-3">Start your own group</h3>
+          <%= form_with url: "/friends/create_group", method: :post, class: "flex flex-col items-center gap-3" do %>
+            <input type="text" name="name" placeholder="Group name (optional)"
+                   class="input input-bordered w-full max-w-md">
+            <button type="submit" class="btn btn-outline">
+              Create New Group
+            </button>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  <% end %>
+</div>

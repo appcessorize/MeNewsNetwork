@@ -1,0 +1,205 @@
+<% content_for :head do %>
+  <%= javascript_import_module_tag "mock_news" %>
+<% end %>
+
+<!-- Toast container (z-60 to stay above fullscreen player) -->
+<div id="toast-container" class="fixed top-4 right-4 z-[60] flex flex-col gap-2 items-end"></div>
+
+<div class="max-w-5xl mx-auto px-6 py-8" style="view-transition-name: page-content;">
+  <!-- Header -->
+  <header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4">
+    <div class="flex-1">
+      <h1 style="font-weight: 900; font-style: italic; font-size: 1.75rem;">MOCK NEWS</h1>
+      <span class="badge badge-warning ml-3">Debug</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <a href="/debug" class="btn btn-ghost btn-sm">Debug Home</a>
+      <a href="/newsroom" class="btn btn-ghost btn-sm">Newsroom</a>
+      <a href="/studio" class="btn btn-ghost btn-sm">Studio</a>
+    </div>
+  </header>
+
+  <!-- 1. Weather Section -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+        <span class="text-xl mr-1">🌤️</span> Weather
+      </h2>
+      <p class="text-sm text-base-content/60">
+        Fetch current London weather and generate narration via Gemini.
+      </p>
+      <div class="card-actions mt-4">
+        <button id="btn-fetch-weather" class="btn btn-sm btn-primary" disabled>
+          Get Weather (London, UK)
+        </button>
+        <span id="weather-status" class="text-xs text-base-content/40"></span>
+      </div>
+      <div id="weather-output" class="mt-3 hidden">
+        <pre class="mono-panel min-h-[40px] max-h-[200px] text-xs"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Video Picker Section -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+        <span class="text-xl mr-1">🎬</span> Video Stories
+      </h2>
+      <p class="text-sm text-base-content/60">
+        Add video files one at a time or select multiple. You can use the picker repeatedly to build your list.
+      </p>
+
+      <div class="form-control mt-3">
+        <label class="label"><span class="label-text text-xs">Add Videos</span></label>
+        <input type="file" id="video-input" multiple accept="video/*"
+               class="file-input file-input-bordered file-input-sm w-full" />
+      </div>
+
+      <!-- Per-video context areas (dynamically generated) -->
+      <div id="video-list" class="mt-4 space-y-3"></div>
+
+      <div class="card-actions mt-4">
+        <button id="btn-upload-videos" class="btn btn-sm btn-primary" disabled>
+          Upload & Create Bulletin
+        </button>
+        <span id="upload-status" class="text-xs text-base-content/40"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Analysis & Build Section -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+        <span class="text-xl mr-1">🤖</span> Analyze & Build
+      </h2>
+
+      <!-- Status indicators -->
+      <div id="story-status-list" class="mt-3 space-y-2 hidden"></div>
+
+      <div class="card-actions mt-4 flex-wrap gap-2">
+        <button id="btn-analyze" class="btn btn-sm btn-secondary" disabled>
+          Analyze Videos
+        </button>
+        <button id="btn-build" class="btn btn-sm btn-accent" disabled>
+          Build Bulletin JSON
+        </button>
+        <button id="btn-play" class="btn btn-sm btn-success" disabled>
+          ▶ Play Bulletin
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Player Section (hidden until play) -->
+  <div id="player-section" class="mb-6 hidden">
+    <!-- Desktop: mockup-phone container -->
+    <div id="desktop-slot" class="hidden md:flex justify-center py-4">
+      <div class="mockup-phone border-base-300">
+        <div class="mockup-phone-camera"></div>
+        <div class="mockup-phone-display bg-black" id="desktop-display"
+             style="width:375px;height:812px;overflow:hidden;"></div>
+      </div>
+    </div>
+
+    <!-- Mobile: fullscreen container -->
+    <div id="mobile-slot" class="md:hidden"></div>
+
+    <!-- Player screen (JS moves this into the active slot) -->
+    <div id="player-screen" class="relative bg-black overflow-hidden">
+      <!-- Background music -->
+      <audio id="bg-music" src="/bgmusic.mp3" loop preload="auto"></audio>
+
+      <!-- Studio overlay -->
+      <div id="studio-overlay" class="absolute inset-0 z-10 flex flex-col"
+           style="display: none; background-size: cover; background-position: center;">
+
+        <!-- Top bar: branding -->
+        <div class="p-3 pt-5">
+          <div class="flex items-center gap-2">
+            <span class="text-white font-black text-sm italic tracking-tight opacity-70">MOCK NEWS</span>
+            <span class="inline-flex items-center gap-1 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+              <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span> LIVE
+            </span>
+          </div>
+        </div>
+
+        <!-- Story intro content (robot LEFT, poster RIGHT) -->
+        <div id="studio-story-content" class="flex-1 flex items-center justify-center px-4" style="display: none;">
+          <div class="flex items-center gap-5">
+            <!-- Robot newsreader (left) -->
+            <div class="flex flex-col items-center shrink-0">
+              <div class="text-5xl">🤖</div>
+              <div class="text-white/30 text-[8px] mt-1 tracking-widest uppercase">Newsreader</div>
+            </div>
+            <!-- Video poster square (right, bigger) -->
+            <div class="relative w-44 h-44 bg-white/10 rounded-xl overflow-hidden border border-white/20 shadow-2xl shrink-0">
+              <canvas id="poster-canvas" width="352" height="352" class="w-full h-full object-cover"></canvas>
+              <!-- Emoji + title inside poster, bottom overlay -->
+              <div class="absolute bottom-0 left-0 right-0 bg-gray-300/30 backdrop-blur-sm px-2.5 py-1.5">
+                <div class="flex items-center gap-1.5">
+                  <span id="studio-emoji" class="text-base shrink-0"></span>
+                  <span id="studio-headline" class="text-white font-bold text-[11px] uppercase tracking-tight leading-tight truncate"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Weather content -->
+        <div id="studio-weather-content" class="flex-1 flex flex-col justify-center px-5" style="display: none;">
+          <div id="weather-display" class="text-white"></div>
+        </div>
+
+        <!-- Subtitle area (above controls) -->
+        <div class="p-4 pb-14 bg-gradient-to-t from-black/80 via-black/30 to-transparent">
+          <div id="subtitle-bar" class="text-center min-h-[44px] flex items-center justify-center">
+            <span id="subtitle-text"
+                  class="bg-black/60 text-white px-3 py-1.5 rounded-lg text-sm inline-block font-medium leading-snug backdrop-blur-sm"
+                  style="display: none; max-width: 95%;"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Video element (object-cover: crop to fill, never stretch) -->
+      <video id="bulletin-video"
+             style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;display:block;"
+             playsinline></video>
+
+      <!-- Inline player controls -->
+      <div class="absolute bottom-0 left-0 right-0 z-30 p-2 flex items-center gap-2"
+           style="background: linear-gradient(transparent, rgba(0,0,0,0.5));">
+        <button id="btn-player-pause" class="btn btn-xs btn-circle btn-ghost text-white/80">⏸</button>
+        <div class="flex-1 text-[10px] text-white/50 truncate">
+          <span id="player-segment-label">Ready</span>
+        </div>
+        <button id="btn-player-stop" class="btn btn-xs btn-circle btn-ghost text-white/60">✕</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Debug Log -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <div class="flex items-center justify-between">
+        <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+          Debug Log
+        </h2>
+        <button id="btn-clear-log" class="btn btn-xs btn-ghost">Clear</button>
+      </div>
+      <pre id="event-log" class="mono-panel min-h-[100px] max-h-[300px] text-xs"></pre>
+    </div>
+  </div>
+
+  <!-- 6. Raw JSON Output (collapsible) -->
+  <div class="collapse collapse-arrow bg-base-100 shadow-sm mb-6">
+    <input type="checkbox" />
+    <div class="collapse-title text-sm uppercase tracking-wider text-base-content/50 font-semibold">
+      Raw Master JSON
+    </div>
+    <div class="collapse-content">
+      <pre id="master-json-output" class="mono-panel min-h-[100px] max-h-[500px] text-xs">Not built yet.</pre>
+    </div>
+  </div>
+</div>

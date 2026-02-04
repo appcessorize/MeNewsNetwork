@@ -1,0 +1,33 @@
+<div class="max-w-md mx-auto px-6 py-16" style="view-transition-name: page-content;">
+  <div class="card bg-base-100 shadow-sm">
+    <div class="card-body text-center">
+      <h1 class="text-2xl font-bold mb-2">Join <%= @group.name %></h1>
+
+      <% if @already_member %>
+        <p class="text-base-content/60 mb-6">You're already a member of this group!</p>
+        <a href="/friends" class="btn btn-primary">Go to Friends</a>
+      <% else %>
+        <p class="text-base-content/60 mb-6">
+          You've been invited to join <strong><%= @group.name %></strong>.
+        </p>
+
+        <div class="flex items-center justify-center gap-3 mb-6">
+          <div class="avatar-group -space-x-4">
+            <% @group.members.limit(5).each do |member| %>
+              <%= user_avatar(member, size: "w-10") %>
+            <% end %>
+          </div>
+          <span class="text-sm text-base-content/60">
+            <%= pluralize(@group.members.count, "member") %>
+          </span>
+        </div>
+
+        <%= form_with url: join_path(@token), method: :post do %>
+          <button type="submit" class="btn btn-primary btn-wide">
+            Join Group
+          </button>
+        <% end %>
+      <% end %>
+    </div>
+  </div>
+</div>

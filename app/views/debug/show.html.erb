@@ -1,0 +1,198 @@
+<% content_for :head do %>
+  <%= javascript_import_module_tag "debug" %>
+<% end %>
+
+<!-- Toast container -->
+<div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 items-end"></div>
+
+<div class="max-w-4xl mx-auto px-6 py-8" style="view-transition-name: page-content;"
+     data-vapid-public="<%= @vapid_public_key %>">
+  <!-- Header -->
+  <header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4">
+    <div class="flex-1">
+      <h1 style="font-weight: 900; font-style: italic; font-size: 1.75rem;">DEBUG</h1>
+      <span class="badge badge-error ml-3">Dev Only</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <a href="/debug/mock_news" class="btn btn-warning btn-sm">Mock News</a>
+      <a href="/newsroom" class="btn btn-ghost btn-sm">Newsroom</a>
+      <a href="/stories" class="btn btn-ghost btn-sm">Stories</a>
+      <a href="/studio" class="btn btn-ghost btn-sm">Studio</a>
+    </div>
+  </header>
+
+  <!-- Status Overview -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <div class="stat bg-base-100 rounded-box shadow-sm">
+      <div class="stat-title">Notification API</div>
+      <div class="stat-value text-lg" id="stat-notification">Checking...</div>
+      <div class="stat-desc" id="stat-notification-desc">Browser support</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow-sm">
+      <div class="stat-title">Service Worker</div>
+      <div class="stat-value text-lg" id="stat-sw">Checking...</div>
+      <div class="stat-desc" id="stat-sw-desc">Registration status</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow-sm">
+      <div class="stat-title">Push Subscription</div>
+      <div class="stat-value text-lg" id="stat-push">Checking...</div>
+      <div class="stat-desc" id="stat-push-desc">Web Push status</div>
+    </div>
+  </div>
+
+  <!-- Local Notification -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+        <span class="text-xl mr-1">🔔</span> Local Notification
+      </h2>
+      <p class="text-sm text-base-content/60">
+        Triggers a browser notification using the Notification API. Clicking it opens the Studio.
+      </p>
+
+      <div class="form-control mt-3">
+        <label class="label"><span class="label-text text-xs">Title</span></label>
+        <input type="text" id="local-title" value="Breaking News" class="input input-bordered input-sm" />
+      </div>
+      <div class="form-control mt-2">
+        <label class="label"><span class="label-text text-xs">Body</span></label>
+        <input type="text" id="local-body" value="The 7 PM broadcast is about to begin. Head to the Studio!" class="input input-bordered input-sm" />
+      </div>
+
+      <div class="card-actions mt-4">
+        <button id="btn-request-permission" class="btn btn-sm btn-outline">
+          Request Permission
+        </button>
+        <button id="btn-local-notify" class="btn btn-sm btn-primary">
+          Send Local Notification
+        </button>
+      </div>
+
+      <div id="local-log" class="mt-3 hidden">
+        <pre class="mono-panel min-h-[40px] max-h-[120px] text-xs"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Web Push Subscribe -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+        <span class="text-xl mr-1">📡</span> Web Push Subscription
+      </h2>
+      <p class="text-sm text-base-content/60">
+        Registers a service worker and subscribes to push notifications via the Push API.
+      </p>
+      <div class="alert alert-info mt-3 text-xs">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 h-5 w-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        <span><strong>Brave Browser:</strong> Web Push is blocked by default. Go to <code class="bg-info-content/10 px-1 rounded">brave://settings/content/notifications</code> and ensure notifications are allowed for this site.</span>
+      </div>
+
+      <div class="card-actions mt-4">
+        <button id="btn-register-sw" class="btn btn-sm btn-outline">
+          Register Service Worker
+        </button>
+        <button id="btn-subscribe-push" class="btn btn-sm btn-primary">
+          Subscribe to Push
+        </button>
+        <button id="btn-unsubscribe-push" class="btn btn-sm btn-outline btn-error">
+          Unsubscribe
+        </button>
+      </div>
+
+      <div id="push-sub-log" class="mt-3 hidden">
+        <pre class="mono-panel min-h-[40px] max-h-[120px] text-xs"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Web Push Trigger -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+        <span class="text-xl mr-1">🚀</span> Trigger Web Push
+      </h2>
+      <p class="text-sm text-base-content/60">
+        Sends a real web push via the server. The notification links to the Studio page.
+      </p>
+
+      <div class="form-control mt-3">
+        <label class="label"><span class="label-text text-xs">Title</span></label>
+        <input type="text" id="push-title" value="Studio Alert" class="input input-bordered input-sm" />
+      </div>
+      <div class="form-control mt-2">
+        <label class="label"><span class="label-text text-xs">Body</span></label>
+        <input type="text" id="push-body" value="You're live in 5 minutes! Head to the Studio now." class="input input-bordered input-sm" />
+      </div>
+
+      <div class="card-actions mt-4">
+        <button id="btn-push-now" class="btn btn-sm btn-primary">
+          Send Push Now
+        </button>
+        <button id="btn-push-schedule" class="btn btn-sm btn-secondary">
+          Send Push in 1 Minute
+        </button>
+      </div>
+
+      <!-- Countdown -->
+      <div id="schedule-countdown" class="mt-3 hidden">
+        <div class="flex items-center gap-3">
+          <progress id="schedule-progress" class="progress progress-secondary w-full" value="0" max="60"></progress>
+          <span id="schedule-timer" class="text-sm font-mono font-bold min-w-[40px] text-right">60s</span>
+        </div>
+      </div>
+
+      <div id="push-trigger-log" class="mt-3 hidden">
+        <pre class="mono-panel min-h-[40px] max-h-[120px] text-xs"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Email (Resend) -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+        <span class="text-xl mr-1">📧</span> Email (Resend)
+      </h2>
+      <p class="text-sm text-base-content/60">
+        Sends a test email via Resend. Make sure your <code class="text-xs bg-base-200 px-1 rounded">RESEND_API_KEY</code> is set in <code class="text-xs bg-base-200 px-1 rounded">.env</code>.
+      </p>
+      <div class="alert alert-warning mt-3">
+        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-5 w-5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+        <span class="text-sm"><strong>Configure Resend</strong> — Add your <code class="bg-warning-content/10 px-1 rounded">RESEND_API_KEY</code> to <code class="bg-warning-content/10 px-1 rounded">.env</code> before sending. See <code class="bg-warning-content/10 px-1 rounded">TODO.md</code> for setup instructions.</span>
+      </div>
+
+      <div class="form-control mt-3">
+        <label class="label"><span class="label-text text-xs">Recipient</span></label>
+        <input type="email" id="email-to" value="" placeholder="email@example.com" class="input input-bordered input-sm" />
+      </div>
+      <div class="form-control mt-2">
+        <label class="label"><span class="label-text text-xs">Subject (optional)</span></label>
+        <input type="text" id="email-subject" value="" placeholder="Newsroom Test Email" class="input input-bordered input-sm" />
+      </div>
+
+      <div class="card-actions mt-4">
+        <button id="btn-send-email" class="btn btn-sm btn-primary">
+          Send Test Email
+        </button>
+      </div>
+
+      <div id="email-log" class="mt-3 hidden">
+        <pre class="mono-panel min-h-[40px] max-h-[120px] text-xs"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full Event Log -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <div class="flex items-center justify-between">
+        <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+          Event Log
+        </h2>
+        <button id="btn-clear-log" class="btn btn-xs btn-ghost">Clear</button>
+      </div>
+      <pre id="event-log" class="mono-panel min-h-[100px] max-h-[300px] text-xs"></pre>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,28 @@
+# Nixpacks configuration for Coolify deployment
+
+[phases.setup]
+nixPkgs = ["libyaml"]
+aptPkgs = ["libsqlite3-dev"]
+
+[phases.install]
+cmds = [
+    "bundle config set --local deployment 'true'",
+    "bundle config set --local without 'development test'",
+    "bundle install"
+]
+
+[phases.build]
+cmds = [
+    "bundle exec bootsnap precompile --gemfile app/ lib/",
+    "SECRET_KEY_BASE_DUMMY=1 bundle exec rails assets:precompile",
+    "SECRET_KEY_BASE_DUMMY=1 bundle exec rails tailwindcss:build"
+]
+
+[start]
+cmd = "bundle exec rails db:prepare && bundle exec thrust ./bin/rails server -b 0.0.0.0 -p ${PORT:-3000}"
+
+[variables]
+RAILS_ENV = "production"
+RAILS_LOG_TO_STDOUT = "true"
+RAILS_SERVE_STATIC_FILES = "true"
+MALLOC_ARENA_MAX = "2"

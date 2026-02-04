@@ -1,0 +1,69 @@
+<div class="max-w-2xl mx-auto px-6 py-8" style="view-transition-name: page-content;">
+  <!-- Header -->
+  <header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4">
+    <div class="flex-1 flex items-center gap-4">
+      <a href="/newsroom" class="btn btn-ghost btn-sm">&larr; Back</a>
+      <h1 style="font-weight: 900; font-style: italic; font-size: 1.75rem;">SETTINGS</h1>
+    </div>
+    <div class="flex items-center gap-3">
+      <% if current_user %>
+        <div class="flex items-center gap-2">
+          <%= user_avatar(current_user) %>
+          <span class="text-sm"><%= current_user.name %></span>
+        </div>
+      <% end %>
+      <button id="btn-logout" type="button" class="btn btn-error btn-sm btn-outline">
+        Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- FAQ Card -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">Frequently Asked Questions</h2>
+
+      <div class="join join-vertical w-full mt-2">
+        <div class="collapse collapse-arrow join-item border border-base-300">
+          <input type="radio" name="faq-accordion" checked="checked" />
+          <div class="collapse-title font-medium text-sm">What video formats are supported?</div>
+          <div class="collapse-content text-sm text-base-content/60">
+            MP4, QuickTime (.mov), WebM, AVI, and MPEG formats are supported. Maximum file size is 200MB.
+          </div>
+        </div>
+
+        <div class="collapse collapse-arrow join-item border border-base-300">
+          <input type="radio" name="faq-accordion" />
+          <div class="collapse-title font-medium text-sm">How does the video analysis work?</div>
+          <div class="collapse-content text-sm text-base-content/60">
+            Videos are uploaded to Google's Gemini AI which analyzes them for scene descriptions, speech transcription, and sound effects. The AI generates timestamp-segmented annotations and a newsreader script.
+          </div>
+        </div>
+
+        <div class="collapse collapse-arrow join-item border border-base-300">
+          <input type="radio" name="faq-accordion" />
+          <div class="collapse-title font-medium text-sm">What is Cloudflare Stream?</div>
+          <div class="collapse-content text-sm text-base-content/60">
+            Cloudflare Stream provides video hosting and delivery. Videos are uploaded directly to Cloudflare, encoded for streaming, and can be embedded using their player.
+          </div>
+        </div>
+
+        <div class="collapse collapse-arrow join-item border border-base-300">
+          <input type="radio" name="faq-accordion" />
+          <div class="collapse-title font-medium text-sm">How long are sessions kept?</div>
+          <div class="collapse-content text-sm text-base-content/60">
+            After analyzing a video, the session is kept for 30 minutes. During this time you can ask follow-up questions about the video. After 30 minutes the session and Gemini file are automatically deleted.
+          </div>
+        </div>
+
+        <div class="collapse collapse-arrow join-item border border-base-300">
+          <input type="radio" name="faq-accordion" />
+          <div class="collapse-title font-medium text-sm">What voices are available for text-to-speech?</div>
+          <div class="collapse-content text-sm text-base-content/60">
+            30 voices are available through Google's Gemini TTS model. The default voice is Kore. You can select different voices from the dropdown after generating a newsreader script.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

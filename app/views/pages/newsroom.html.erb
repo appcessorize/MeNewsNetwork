@@ -1,0 +1,172 @@
+<% content_for :head do %>
+  <%= javascript_import_module_tag "newsroom" %>
+<% end %>
+
+<div class="max-w-4xl mx-auto px-6 py-8" style="view-transition-name: page-content;">
+  <!-- Header -->
+  <header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4">
+    <div class="flex-1">
+      <h1 style="font-weight: 900; font-style: italic; font-size: 1.75rem;">NEWSROOM</h1>
+    </div>
+    <div class="flex items-center gap-3">
+      <% if current_user %>
+        <div class="flex items-center gap-2">
+          <%= user_avatar(current_user) %>
+          <span class="text-sm"><%= current_user.name %></span>
+        </div>
+      <% end %>
+      <a href="/stories" class="btn btn-ghost btn-sm">Stories</a>
+      <a href="/friends" class="btn btn-ghost btn-sm">Friends</a>
+      <a href="/studio" class="btn btn-ghost btn-sm">Studio</a>
+      <a href="/debug" class="btn btn-ghost btn-sm">Debug</a>
+      <a href="/settings" class="btn btn-ghost btn-sm">Settings</a>
+    </div>
+  </header>
+
+  <!-- Controls Card -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">Controls</h2>
+      <div class="flex flex-wrap items-center gap-2 mt-2">
+        <button id="btn-health" type="button" class="btn btn-sm btn-outline">Test API Connection</button>
+        <button id="btn-test-gemini" type="button" class="btn btn-sm btn-outline">Test Gemini API</button>
+        <button id="btn-weather" type="button" class="btn btn-sm btn-outline">London Weather</button>
+      </div>
+
+      <div class="divider my-2"></div>
+
+      <div class="flex items-center gap-3">
+        <button type="button" id="btn-choose" class="btn btn-sm">Choose video</button>
+        <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" hidden>
+        <span id="file-name" class="text-xs text-base-content/50 truncate max-w-md">No file selected</span>
+      </div>
+
+      <div id="video-preview-wrap" class="w-full border border-base-300 rounded-box overflow-hidden bg-black mt-2" hidden>
+        <video id="video-preview" controls class="block w-full h-auto aspect-video object-contain"></video>
+      </div>
+
+      <div class="flex items-center gap-2 mt-2">
+        <button id="btn-analyze" type="button" disabled class="btn btn-sm btn-primary">Analyze Video</button>
+        <button id="btn-cf-upload" type="button" disabled class="btn btn-sm btn-cf">Upload to Cloudflare</button>
+      </div>
+
+      <!-- Progress bars -->
+      <progress id="progress-bar-wrap" class="progress progress-primary w-full mt-2" value="0" max="100" hidden></progress>
+      <progress id="cf-progress-wrap" class="progress progress-warning w-full mt-1" value="0" max="100" hidden></progress>
+    </div>
+  </div>
+
+  <!-- Cloudflare Stream Card -->
+  <div id="cf-stream-section" class="card bg-base-100 shadow-sm mb-6" hidden>
+    <div class="card-body">
+      <h2 class="card-title text-sm">Cloudflare Stream</h2>
+      <div id="cf-status" class="text-sm text-base-content/60"></div>
+      <div id="cf-player-wrap" class="border border-base-300 rounded-box overflow-hidden" hidden>
+        <div id="cf-player"></div>
+      </div>
+      <div id="cf-url" class="text-sm text-base-content/50" hidden>
+        <span>Stream URL: </span><a id="cf-url-link" href="#" target="_blank" class="link link-primary break-all"></a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Query Card -->
+  <div id="query-section" class="card bg-base-100 shadow-sm mb-6" hidden>
+    <div class="card-body">
+      <h2 class="card-title text-sm">Ask about this video</h2>
+      <div class="join w-full">
+        <input type="text" id="query-input" placeholder="e.g. Summarise the video, What language is spoken?..."
+               class="input input-bordered join-item flex-1">
+        <button id="btn-query" type="button" class="btn btn-primary join-item">Ask</button>
+      </div>
+      <pre id="query-result" class="mono-panel min-h-[60px] max-h-[300px] mt-2"></pre>
+    </div>
+  </div>
+
+  <!-- Weather Section -->
+  <section id="weather-section" class="mb-6" hidden>
+    <div id="weather-card" class="weather-card"></div>
+  </section>
+
+  <!-- Newsreader Script Card -->
+  <div id="script-section" class="card bg-base-100 shadow-sm mb-6" hidden>
+    <div class="card-body">
+      <h2 class="card-title text-sm">Newsreader Script</h2>
+      <pre id="news-script" class="font-mono text-sm leading-loose bg-base-200 border border-primary rounded-box p-5 min-h-[80px] max-h-[350px] overflow-y-auto whitespace-pre-wrap break-words"></pre>
+      <div class="flex items-center gap-2 mt-3">
+        <select id="voice-select" class="select select-bordered select-sm"></select>
+        <button id="btn-tts" type="button" class="btn btn-sm btn-primary">Generate Audio</button>
+        <span id="tts-status" class="text-xs text-base-content/50"></span>
+      </div>
+      <audio id="tts-audio" controls hidden class="block w-full mt-3"></audio>
+    </div>
+  </div>
+
+  <!-- ═══ Story Debug Card ═══ -->
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body">
+      <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">Story Debug</h2>
+
+      <!-- 1. Text Note -->
+      <div class="mb-4">
+        <h3 class="text-sm font-semibold mb-2">Text Note</h3>
+        <div class="join w-full">
+          <input type="text" id="story-text-input" placeholder="Write a note..."
+                 class="input input-bordered join-item flex-1">
+          <button id="btn-save-text" type="button" class="btn btn-primary join-item">Save</button>
+        </div>
+        <div id="story-text-result" class="mt-3" hidden>
+          <div class="chat chat-start">
+            <div class="chat-bubble" id="story-text-display"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider my-1"></div>
+
+      <!-- 2. Voice Note -->
+      <div class="mb-4">
+        <h3 class="text-sm font-semibold mb-2">Voice Note <span class="badge badge-sm badge-ghost">25s max</span></h3>
+        <div class="flex items-center gap-3">
+          <button id="btn-record" type="button" class="btn btn-sm btn-error btn-outline">Record</button>
+          <span id="record-timer" class="text-sm font-mono text-base-content/50" hidden>0:00 / 0:25</span>
+          <span id="record-status" class="text-xs text-base-content/40"></span>
+        </div>
+        <div id="voice-note-result" class="mt-3" hidden>
+          <audio id="voice-note-player" controls class="block w-full"></audio>
+        </div>
+      </div>
+
+      <div class="divider my-1"></div>
+
+      <!-- 3. Image Upload -->
+      <div>
+        <h3 class="text-sm font-semibold mb-2">Image Upload</h3>
+        <div class="flex items-center gap-3">
+          <button id="btn-choose-image" type="button" class="btn btn-sm btn-outline">Choose Image</button>
+          <input type="file" id="image-input" accept="image/*" hidden>
+          <span id="image-name" class="text-xs text-base-content/50 truncate max-w-xs">No image selected</span>
+        </div>
+        <div id="image-result" class="mt-3" hidden>
+          <img id="image-preview" src="" alt="Uploaded image" class="max-w-full max-h-[300px] rounded-box border border-base-300">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Debug + Results Cards -->
+  <div class="grid gap-6 md:grid-cols-2 mb-6">
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body">
+        <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">Debug Messages</h2>
+        <pre id="debug" class="mono-panel min-h-[120px] max-h-[350px]"></pre>
+      </div>
+    </div>
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body">
+        <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">Results</h2>
+        <pre id="results" class="mono-panel min-h-[120px] max-h-[350px] text-emerald-700"></pre>
+      </div>
+    </div>
+  </div>
+</div>

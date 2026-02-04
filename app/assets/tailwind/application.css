@@ -1,0 +1,128 @@
+@import "tailwindcss";
+@source not "./daisyui{,*}.mjs";
+@plugin "./daisyui.mjs";
+
+@layer components {
+  .btn-cf {
+    @apply btn btn-warning text-white;
+  }
+
+  .panel-title {
+    @apply text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2;
+  }
+
+  .mono-panel {
+    @apply font-mono text-xs leading-relaxed bg-base-100 border border-base-300 rounded-box p-4 overflow-y-auto whitespace-pre-wrap break-words;
+  }
+
+  .weather-card {
+    @apply rounded-xl border border-base-300 p-6 text-base-content;
+    background: linear-gradient(135deg, #dbeafe, #ede9fe);
+  }
+
+  .weather-loading {
+    @apply text-center text-base-content/60 py-8 text-sm;
+  }
+
+  .weather-headline {
+    @apply text-base font-semibold mb-5 text-center;
+  }
+
+  .weather-current {
+    @apply flex items-center gap-5 mb-6 pb-5 border-b border-black/10;
+  }
+
+  .current-emoji {
+    @apply text-6xl leading-none;
+  }
+
+  .current-temp {
+    @apply text-4xl font-bold tracking-tight;
+  }
+
+  .current-summary {
+    @apply text-sm text-base-content/70 mt-0.5;
+  }
+
+  .current-details {
+    @apply flex gap-4 mt-1.5 text-xs text-base-content/50;
+  }
+
+  .forecast-grid {
+    @apply grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3 mb-5;
+  }
+
+  .forecast-day {
+    @apply bg-white/60 rounded-lg p-3 text-center;
+  }
+
+  .forecast-day-name {
+    @apply text-xs font-semibold uppercase tracking-wider text-slate-600;
+  }
+
+  .forecast-day-emoji {
+    @apply text-3xl my-1;
+  }
+
+  .forecast-temps {
+    @apply text-sm font-semibold;
+  }
+
+  .temp-high {
+    @apply text-red-600;
+  }
+
+  .temp-low {
+    @apply text-blue-600 ml-1.5;
+  }
+
+  .forecast-summary {
+    @apply text-[0.72rem] text-slate-500 mt-1;
+  }
+
+  .weather-advice {
+    @apply text-center text-sm italic text-slate-600 pt-1;
+  }
+
+  /* iMessage-style chat bubbles */
+  .imessage-sent {
+    background-color: #007AFF !important;
+    color: #fff !important;
+  }
+
+  .imessage-received {
+    background-color: #E9E9EB !important;
+    color: #1c1c1e !important;
+  }
+}
+
+/* View Transitions */
+::view-transition-old(page-content) {
+  animation: fade-and-slide-out 0.25s ease-in forwards;
+}
+
+::view-transition-new(page-content) {
+  animation: fade-and-slide-in 0.25s ease-out forwards;
+}
+
+@keyframes fade-and-slide-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-30px); }
+}
+
+@keyframes fade-and-slide-in {
+  from { opacity: 0; transform: translateX(30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Scrollbar styling */
+pre::-webkit-scrollbar {
+  width: 6px;
+}
+pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+pre::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
