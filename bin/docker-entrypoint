@@ -1,3 +1,8 @@
 #!/bin/bash -e
 
+# Prepare database (create if needed, run migrations)
+if [ "${RAILS_ENV}" = "production" ]; then
+  ./bin/rails db:prepare
+fi
+
 exec "${@}"
