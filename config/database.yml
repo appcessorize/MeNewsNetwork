@@ -23,9 +23,13 @@ test:
 
 production:
   primary:
-    <<: *default
-    database: storage/production.sqlite3
+    adapter: postgresql
+    encoding: unicode
+    pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+    url: <%= ENV["DATABASE_URL"] %>
   queue:
-    <<: *default
-    database: storage/queue_production.sqlite3
+    adapter: postgresql
+    encoding: unicode
+    pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+    url: <%= ENV["QUEUE_DATABASE_URL"] || ENV["DATABASE_URL"] %>
     migrations_paths: db/queue_migrate

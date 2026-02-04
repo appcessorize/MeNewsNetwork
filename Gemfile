@@ -20,6 +20,7 @@ gem "dotenv-rails", "~> 3.1"
 
 # Database
 gem "sqlite3", ">= 2.1"
+gem "pg", group: :production
 
 # Store Active Storage blobs in the database
 gem "active_storage_db"
