@@ -11,6 +11,9 @@
 # It's strongly recommended that you check this file into your version control system.
 
 ActiveRecord::Schema[8.1].define(version: 2026_02_03_103253) do
+  # Required for UUID support in PostgreSQL
+  enable_extension "pgcrypto" if ActiveRecord::Base.connection.adapter_name == "PostgreSQL"
+
   create_table "active_storage_attachments", force: :cascade do |t|
     t.bigint "blob_id", null: false
     t.datetime "created_at", null: false
@@ -87,17 +90,38 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_03_103253) do
     t.index ["status"], name: "index_debug_stories_on_status"
   end
 
-# Could not dump table "group_invites" because of following StandardError
-#   Unknown type 'uuid' for column 'group_id'
+  create_table "groups", id: :string, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "creator_id", null: false
+    t.string "name", null: false
+    t.datetime "updated_at", null: false
+    t.index ["creator_id"], name: "index_groups_on_creator_id"
+  end
 
+  create_table "group_memberships", id: :string, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "group_id", null: false
+    t.string "role", default: "member", null: false
+    t.datetime "updated_at", null: false
+    t.integer "user_id", null: false
+    t.index ["group_id", "user_id"], name: "index_group_memberships_on_group_id_and_user_id", unique: true
+    t.index ["group_id"], name: "index_group_memberships_on_group_id"
+    t.index ["user_id"], name: "index_group_memberships_on_user_id"
+  end
 
-# Could not dump table "group_memberships" because of following StandardError
-#   Unknown type 'uuid' for column 'group_id'
-
-
-# Could not dump table "groups" because of following StandardError
-#   Unknown type 'uuid' for column 'id'
-
+  create_table "group_invites", id: :string, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "created_by_id", null: false
+    t.datetime "expires_at"
+    t.string "group_id", null: false
+    t.integer "max_uses"
+    t.string "token_digest", null: false
+    t.datetime "updated_at", null: false
+    t.integer "uses_count", default: 0, null: false
+    t.index ["created_by_id"], name: "index_group_invites_on_created_by_id"
+    t.index ["group_id"], name: "index_group_invites_on_group_id"
+    t.index ["token_digest"], name: "index_group_invites_on_token_digest", unique: true
+  end
 
   create_table "push_subscriptions", force: :cascade do |t|
     t.text "auth"
