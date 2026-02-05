@@ -72,6 +72,6 @@ COPY --chown=rails:rails --from=build /rails /rails
 # Entrypoint prepares the database.
 ENTRYPOINT ["/rails/bin/docker-entrypoint"]
 
-# Start server directly with Puma
-EXPOSE 3000
-CMD ["./bin/rails", "server", "-b", "0.0.0.0"]
+# Start server via Thruster
+EXPOSE 80
+CMD ["./bin/thrust", "./bin/rails", "server"]
