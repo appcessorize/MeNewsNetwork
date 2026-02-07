@@ -11,7 +11,7 @@ module Gemini
 
       result = @client.generate_content(
         model: model,
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [ { parts: [ { text: prompt } ] } ],
         generation_config: config
       )
 
@@ -25,7 +25,7 @@ module Gemini
 
       result = @client.generate_content(
         model: model,
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [ { parts: [ { text: prompt } ] } ],
         generation_config: config
       )
 
@@ -44,12 +44,12 @@ module Gemini
 
       result = @client.generate_content(
         model: model,
-        contents: [{
+        contents: [ {
           parts: [
             { fileData: { mimeType: file_mime_type, fileUri: file_uri } },
             { text: prompt }
           ]
-        }],
+        } ],
         generation_config: config
       )
 

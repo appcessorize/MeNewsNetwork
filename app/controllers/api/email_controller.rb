@@ -22,15 +22,15 @@ module Api
       Rails.logger.error e.backtrace&.first(5)&.join("\n")
 
       error_message = case e.message
-                      when /API key/i, /unauthorized/i, /401/
+      when /API key/i, /unauthorized/i, /401/
                         "Resend API key is invalid or missing. Check RESEND_API_KEY."
-                      when /domain.*not.*verified/i, /403/
+      when /domain.*not.*verified/i, /403/
                         "Sending domain not verified. Verify menews.network in Resend dashboard."
-                      when /rate.*limit/i, /429/
+      when /rate.*limit/i, /429/
                         "Rate limit exceeded. Wait a moment and try again."
-                      else
+      else
                         e.message
-                      end
+      end
 
       render json: { ok: false, error: error_message }, status: :internal_server_error
     end

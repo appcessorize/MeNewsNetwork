@@ -13,7 +13,7 @@ class CreateActiveStorageDBFiles < ActiveRecord::Migration[6.0]
         t.datetime :created_at, null: false
       end
 
-      t.index [:ref], unique: true
+      t.index [ :ref ], unique: true
     end
   end
 

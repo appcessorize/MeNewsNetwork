@@ -10,7 +10,7 @@ class AnalyzeDebugStoryJob < ApplicationJob
     story.update!(status: "analyzing")
     Rails.logger.info("[debug_news] Analyzing story ##{story.story_number} (id=#{story.id})")
 
-    tempfile = Tempfile.new(["debug_story_#{story.id}_", ".mp4"])
+    tempfile = Tempfile.new([ "debug_story_#{story.id}_", ".mp4" ])
     tempfile.binmode
     story.media.download { |chunk| tempfile.write(chunk) }
     tempfile.rewind

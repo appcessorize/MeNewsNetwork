@@ -31,8 +31,8 @@ Rails.application.routes.draw do
                                             defaults: { format: :json }
   end
 
-  resources :stories, only: [:index, :show] do
-    resources :comments, only: [:create]
+  resources :stories, only: [ :index, :show ] do
+    resources :comments, only: [ :create ]
   end
 
   # Google OAuth

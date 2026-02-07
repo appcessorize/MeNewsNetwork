@@ -110,7 +110,7 @@ class WebPushService
     asn1 = OpenSSL::ASN1::Sequence.new([
       OpenSSL::ASN1::Integer.new(1),
       OpenSSL::ASN1::OctetString.new(priv_raw),
-      OpenSSL::ASN1::ObjectId.new("prime256v1", 0, :EXPLICIT),
+      OpenSSL::ASN1::ObjectId.new("prime256v1", 0, :EXPLICIT)
     ])
     key = OpenSSL::PKey::EC.new(asn1.to_der)
 

@@ -73,7 +73,7 @@ class AuthController < ApplicationController
 
   # GET /auth/debug — show debug login form
   def debug_form
-    return redirect_to root_path unless Rails.env.development?
+    redirect_to root_path unless Rails.env.development?
   end
 
   # POST /auth/debug — create/find test user and log in

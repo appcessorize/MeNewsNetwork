@@ -22,7 +22,7 @@ class GroupInvite < ApplicationRecord
       token_digest: digest(token),
       max_uses: max_uses
     )
-    [invite, token]
+    [ invite, token ]
   end
 
   def self.find_by_token(token)

@@ -16,9 +16,9 @@ module Gemini
       url = "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{@api_key}"
 
       body = {
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [ { parts: [ { text: prompt } ] } ],
         generationConfig: {
-          responseModalities: ["AUDIO"],
+          responseModalities: [ "AUDIO" ],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: { voiceName: voice }
