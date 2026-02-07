@@ -150,14 +150,21 @@
       <p class="text-sm text-base-content/60">
         Sends a test email via Resend. Make sure your <code class="text-xs bg-base-200 px-1 rounded">RESEND_API_KEY</code> is set in <code class="text-xs bg-base-200 px-1 rounded">.env</code>.
       </p>
-      <div class="alert alert-warning mt-3">
-        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-5 w-5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-        <span class="text-sm"><strong>Configure Resend</strong> — Add your <code class="bg-warning-content/10 px-1 rounded">RESEND_API_KEY</code> to <code class="bg-warning-content/10 px-1 rounded">.env</code> before sending. See <code class="bg-warning-content/10 px-1 rounded">TODO.md</code> for setup instructions.</span>
-      </div>
+      <% if ENV["RESEND_API_KEY"].present? %>
+        <div class="alert alert-success mt-3">
+          <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-5 w-5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <span class="text-sm"><strong>Resend configured</strong> — API key is set. Sending from <code class="bg-success-content/10 px-1 rounded">aijournalist@menews.network</code></span>
+        </div>
+      <% else %>
+        <div class="alert alert-error mt-3">
+          <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-5 w-5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <span class="text-sm"><strong>Resend not configured</strong> — Add <code class="bg-error-content/10 px-1 rounded">RESEND_API_KEY</code> to your environment variables.</span>
+        </div>
+      <% end %>
 
       <div class="form-control mt-3">
         <label class="label"><span class="label-text text-xs">Recipient</span></label>
-        <input type="email" id="email-to" value="" placeholder="email@example.com" class="input input-bordered input-sm" />
+        <input type="email" id="email-to" value="<%= current_user&.email %>" placeholder="email@example.com" class="input input-bordered input-sm" />
       </div>
       <div class="form-control mt-2">
         <label class="label"><span class="label-text text-xs">Subject (optional)</span></label>

@@ -358,13 +358,20 @@ function startCountdown() {
 
 // ── Email ─────────────────────────────────────
 async function sendTestEmail() {
+  const btn = document.getElementById("btn-send-email");
   const to = document.getElementById("email-to").value.trim();
   const subject = document.getElementById("email-subject").value.trim();
 
   if (!to) {
+    showToast("Email Error", "Enter an email address.", "error");
     logTo("email-log", "ERROR: Enter an email address.");
     return;
   }
+
+  // Show loading state
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Sending...';
 
   log("Sending test email to " + to + "...");
   logTo("email-log", "Sending to " + to + "...");
@@ -374,17 +381,40 @@ async function sendTestEmail() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-CSRF-Token": document.querySelector("meta[name='csrf-token']").content
+        "X-CSRF-Token": document.querySelector("meta[name='csrf-token']")?.content || ""
       },
       body: JSON.stringify({ to, subject: subject || undefined })
     });
 
     const data = await resp.json();
     log("Email result: " + JSON.stringify(data));
-    logTo("email-log", data.ok ? data.message : "Error: " + (data.error || "Unknown error"));
+
+    if (data.ok) {
+      showToast("Email Sent", data.message || `Test email sent to ${to}`, "success");
+      logTo("email-log", "✓ " + (data.message || "Email sent successfully."));
+    } else {
+      const errorMsg = data.error || "Unknown error";
+      showToast("Email Failed", errorMsg, "error");
+      logTo("email-log", "✗ Error: " + errorMsg);
+
+      // Provide helpful hints based on error
+      if (errorMsg.includes("API key") || errorMsg.includes("Resend")) {
+        logTo("email-log", "→ Hint: Check that RESEND_API_KEY is set in your environment variables.");
+      } else if (errorMsg.includes("Access denied")) {
+        logTo("email-log", "→ Hint: Make sure you're logged in as the admin user.");
+      } else if (errorMsg.includes("domain") || errorMsg.includes("verified")) {
+        logTo("email-log", "→ Hint: Ensure your sending domain is verified in Resend dashboard.");
+      }
+    }
   } catch (err) {
     log("Email failed: " + err.message);
-    logTo("email-log", "ERROR: " + err.message);
+    showToast("Email Failed", err.message, "error");
+    logTo("email-log", "✗ ERROR: " + err.message);
+    logTo("email-log", "→ Hint: Check browser console and server logs for details.");
+  } finally {
+    // Reset button
+    btn.disabled = false;
+    btn.textContent = originalText;
   }
 }
 
