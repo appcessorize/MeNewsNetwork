@@ -44,6 +44,10 @@ Rails.application.routes.draw do
   get  "auth/debug",           to: "auth#debug_form",  as: :auth_debug
   post "auth/debug",           to: "auth#debug_login"
 
+  # Analytics proxy (avoids ad-blocker blocking of third-party domain)
+  get  "a/script.js", to: "analytics#script"
+  post "a/event",     to: "analytics#event"
+
   get "up" => "rails/health#show", as: :rails_health_check
 
   # Webhooks

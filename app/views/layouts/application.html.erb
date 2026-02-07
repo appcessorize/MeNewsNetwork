@@ -9,9 +9,6 @@
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
 
-    <%# DNS prefetch for external resources %>
-    <link rel="dns-prefetch" href="https://umamipod.pikapod.net">
-
     <%# Preload critical font (most used weight) %>
     <link rel="preload" href="/fonts/inter-400.woff2" as="font" type="font/woff2" crossorigin>
 
@@ -24,8 +21,8 @@
     <%= javascript_importmap_tags %>
     <%= content_for(:head) %>
 
-    <%# Umami Analytics %>
-    <script defer src="https://umamipod.pikapod.net/script.js" data-website-id="639a34cb-cba3-48db-9d9b-245b98682078"></script>
+    <%# Umami Analytics (proxied through /a/ to avoid ad-blocker blocking) %>
+    <script defer src="/a/script.js" data-website-id="639a34cb-cba3-48db-9d9b-245b98682078"></script>
   </head>
 
   <body class="bg-base-200 min-h-screen overflow-x-hidden" style="font-family: 'Inter', system-ui, -apple-system, sans-serif;">
