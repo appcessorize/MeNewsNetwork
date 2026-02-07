@@ -1,4 +1,6 @@
-class AnalyticsController < ApplicationController
+class AnalyticsController < ActionController::Base
+  skip_forgery_protection
+
   UMAMI_HOST = "https://umamipod.pikapod.net".freeze
 
   # GET /a/script.js — proxy the Umami tracking script
