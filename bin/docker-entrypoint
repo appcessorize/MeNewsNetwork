@@ -3,7 +3,7 @@
 # Prepare database (create if needed, run migrations)
 if [ "${RAILS_ENV}" = "production" ]; then
   ./bin/rails db:prepare
-  ./bin/rails db:prepare:queue
+  ./bin/rails db:schema:load:queue 2>/dev/null || true
 fi
 
 exec "${@}"
