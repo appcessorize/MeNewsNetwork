@@ -28,7 +28,8 @@ module Api
         ok: true,
         customerCode: Rails.configuration.x.cloudflare.customer_code,
         configured: Rails.configuration.x.cloudflare.account_id.present? &&
-                    Rails.configuration.x.cloudflare.api_token.present?
+                    Rails.configuration.x.cloudflare.api_token.present? &&
+                    Rails.configuration.x.cloudflare.customer_code.present?
       }
     rescue => e
       Rails.logger.error "[CF Config] Error: #{e.message}"
