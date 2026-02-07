@@ -1,0 +1,152 @@
+<% content_for :head do %>
+  <%= lazy_javascript_module_tag "chat" %>
+<% end %>
+
+<div id="chat-page" class="chat-page"
+     data-user-avatar="<%= @user.avatar_url %>"
+     data-user-name="<%= @user.name %>"
+     data-group-name="<%= @group&.name %>"
+     data-group-members="<%= @group_members.map { |m| { id: m.id, name: m.name, avatar_url: m.avatar_url } }.to_json %>">
+
+  <!-- Header -->
+  <header class="chat-header">
+    <div class="flex items-center gap-3 flex-1 min-w-0">
+      <div class="avatar placeholder">
+        <div class="bg-neutral text-neutral-content w-10 rounded-full flex items-center justify-center">
+          <span class="text-2xl leading-none">&#x1F916;</span>
+        </div>
+      </div>
+      <div class="min-w-0">
+        <h1 class="font-bold text-sm truncate">Robot Journalist</h1>
+        <span class="text-xs text-success flex items-center gap-1">
+          <span class="w-2 h-2 bg-success rounded-full animate-pulse inline-block"></span>
+          Online
+        </span>
+      </div>
+    </div>
+    <div class="flex items-center gap-1 shrink-0">
+      <% if @group %>
+        <span class="badge badge-ghost badge-sm hidden sm:inline-flex"><%= @group.name %></span>
+      <% end %>
+      <!-- Menu button -->
+      <button type="button" class="btn btn-ghost btn-sm btn-square" onclick="document.getElementById('mobile-menu').classList.remove('hidden')">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Chat Messages -->
+  <div id="chat-messages" class="chat-scroll">
+    <!-- Server-rendered welcome messages -->
+    <div class="chat chat-start">
+      <div class="chat-image avatar placeholder">
+        <div class="bg-neutral text-neutral-content w-10 rounded-full flex items-center justify-center">
+          <span class="text-2xl leading-none">&#x1F916;</span>
+        </div>
+      </div>
+      <div class="chat-header text-xs text-base-content/50 mb-1">
+        Robot Journalist
+        <time class="text-xs opacity-50">just now</time>
+      </div>
+      <div class="chat-bubble imessage-received">Hey <%= @user.name&.split(' ')&.first %>! &#x1F44B; Do you have any news for today's report?</div>
+    </div>
+
+    <div class="chat chat-start">
+      <div class="chat-image avatar placeholder">
+        <div class="bg-neutral text-neutral-content w-10 rounded-full flex items-center justify-center">
+          <span class="text-2xl leading-none">&#x1F916;</span>
+        </div>
+      </div>
+      <div class="chat-bubble imessage-received">You can share video, images, text, or audio. What have you been up to? Any plans for later?</div>
+    </div>
+  </div>
+
+  <!-- Input Bar -->
+  <div id="chat-input-bar" class="chat-input-bar">
+    <div class="flex items-end gap-2 w-full">
+      <!-- Media buttons -->
+      <button id="btn-photo" type="button" class="media-btn" title="Send photo">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      </button>
+      <button id="btn-video" type="button" class="media-btn" title="Send video">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+        </svg>
+      </button>
+
+      <!-- Text input -->
+      <div class="flex-1 min-w-0">
+        <textarea id="chat-textarea" class="chat-textarea" rows="1" placeholder="Message..." enterkeyhint="send"></textarea>
+      </div>
+
+      <!-- Mic / Send button -->
+      <button id="btn-mic" type="button" class="media-btn media-btn-mic" title="Record voice note">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3z" />
+        </svg>
+      </button>
+      <button id="btn-send" type="button" class="media-btn media-btn-send hidden" title="Send message">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1.707-5.293a1 1 0 011.414 0L10 13l.293-.293 2-2a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" transform="rotate(-90 10 10)" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Recording indicator -->
+    <div id="recording-indicator" class="hidden">
+      <div class="flex items-center gap-2 py-2 px-1">
+        <span class="recording-pulse"></span>
+        <span class="text-sm text-error font-medium">Recording</span>
+        <span id="recording-timer" class="text-sm font-mono text-base-content/60">0:00</span>
+        <button id="btn-stop-recording" type="button" class="btn btn-error btn-xs ml-auto">Stop</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden file inputs -->
+  <input type="file" id="image-picker" accept="image/*" capture="environment" class="hidden" />
+  <input type="file" id="video-picker" accept="video/*" capture="environment" class="hidden" />
+</div>
+
+<!-- Mobile Menu (reuse shared navbar mobile menu) -->
+<div id="mobile-menu" class="fixed inset-0 z-50 bg-base-100 hidden">
+  <div class="flex flex-col h-full">
+    <div class="flex items-center justify-between p-4 border-b border-base-300">
+      <h2 class="text-lg font-bold">Menu</h2>
+      <button type="button" class="btn btn-ghost btn-square" onclick="document.getElementById('mobile-menu').classList.add('hidden')">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+    <% if current_user %>
+      <div class="flex items-center gap-3 p-4 border-b border-base-300 bg-base-200">
+        <%= user_avatar(current_user, size: "w-12") %>
+        <div>
+          <p class="font-semibold"><%= current_user.name %></p>
+          <p class="text-sm text-base-content/60"><%= current_user.email %></p>
+        </div>
+      </div>
+    <% end %>
+    <ul class="menu menu-lg flex-1 p-4 gap-1">
+      <li><a href="/" class="menu-active">Chat</a></li>
+      <li><a href="/newsroom">Newsroom</a></li>
+      <li><a href="/stories">Stories</a></li>
+      <li><a href="/friends">Friends</a></li>
+      <li><a href="/settings">Settings</a></li>
+      <% if current_user&.email == ENV.fetch("ADMIN_EMAIL", nil) %>
+        <li><a href="/debug">Debug</a></li>
+      <% end %>
+    </ul>
+    <% if current_user %>
+      <div class="p-4 border-t border-base-300">
+        <%= button_to "Sign Out", auth_logout_path, method: :delete, class: "btn btn-outline btn-error w-full" %>
+      </div>
+    <% end %>
+  </div>
+</div>

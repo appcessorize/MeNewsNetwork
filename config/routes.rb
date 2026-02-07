@@ -65,6 +65,10 @@ Rails.application.routes.draw do
     get  "cf/video/:uid",    to: "cloudflare#video_status"
     get  "cf/config",        to: "cloudflare#stream_config"
 
+    post "chat/analyze",   to: "chat#analyze"
+    post "chat/followup",  to: "chat#followup"
+    post "chat/generate",  to: "chat#generate"
+
     # Stories (text, voice notes, images)
     # Web Push
     post "push/subscribe", to: "push#subscribe"

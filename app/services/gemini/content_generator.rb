@@ -59,6 +59,29 @@ module Gemini
       { text: text, usage: usage }
     end
 
+    # Generate with inline base64 data (images)
+    def generate_with_inline_data(data:, mime_type:, prompt:, model: Rails.configuration.x.gemini.model_name, temperature: nil, json_response: false)
+      config = {}
+      config[:temperature] = temperature if temperature
+      config[:responseMimeType] = "application/json" if json_response
+
+      result = @client.generate_content(
+        model: model,
+        contents: [ {
+          parts: [
+            { inlineData: { mimeType: mime_type, data: data } },
+            { text: prompt }
+          ]
+        } ],
+        generation_config: config
+      )
+
+      text = extract_text(result)
+      usage = extract_usage(result)
+
+      { text: text, usage: usage }
+    end
+
     # Generate with file + question (follow-up queries)
     def query_file(file_uri:, file_mime_type:, question:, model: Rails.configuration.x.gemini.model_name, temperature: 0.3)
       generate_with_file(

@@ -2,7 +2,12 @@ class PagesController < ApplicationController
   before_action :require_login!, only: %i[newsroom settings]
 
   def home
-    redirect_to newsroom_path if logged_in?
+    if logged_in?
+      @user = current_user
+      @group = current_user.primary_group
+      @group_members = @group ? @group.members.where.not(id: current_user.id).order(:name) : []
+      render :chat
+    end
   end
 
   def newsroom
