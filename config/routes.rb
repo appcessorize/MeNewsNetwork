@@ -63,7 +63,7 @@ Rails.application.routes.draw do
 
     post "cf/create-upload", to: "cloudflare#create_upload"
     get  "cf/video/:uid",    to: "cloudflare#video_status"
-    get  "cf/config",        to: "cloudflare#config"
+    get  "cf/config",        to: "cloudflare#stream_config"
 
     # Stories (text, voice notes, images)
     # Web Push

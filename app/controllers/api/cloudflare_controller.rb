@@ -23,7 +23,7 @@ module Api
       render json: { ok: true, result: result }
     end
 
-    def config
+    def stream_config
       render json: {
         ok: true,
         customerCode: Rails.configuration.x.cloudflare.customer_code,
