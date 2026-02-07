@@ -3,63 +3,145 @@ module Debug
     before_action :require_login!
     before_action :require_admin!
     skip_forgery_protection only: [
-      :create_bulletin, :fetch_weather, :analyze, :build
+      :create_bulletin, :fetch_weather, :analyze_story, :serve_video, :build
     ]
 
     ADMIN_EMAIL = DebugController::ADMIN_EMAIL
     MAX_FILE_SIZE = 200.megabytes
     ALLOWED_TYPES = %w[video/mp4 video/quicktime video/webm video/x-msvideo video/mpeg].freeze
+    STAGING_DIR = Rails.root.join("tmp", "debug_videos")
 
     # GET /debug/mock_news
     def show
     end
 
     # POST /debug/mock_news/bulletins
+    # Lightweight — no files, just creates the bulletin shell
     def create_bulletin
-      videos = Array(params[:videos])
-      contexts = Array(params[:user_context])
-
-      if videos.empty?
-        return render json: { ok: false, error: "No videos uploaded" }, status: :bad_request
-      end
-
-      videos.each_with_index do |video, i|
-        unless ALLOWED_TYPES.include?(video.content_type)
-          return render json: {
-            ok: false,
-            error: "Video #{i + 1}: unsupported type #{video.content_type}"
-          }, status: :bad_request
-        end
-        if video.size > MAX_FILE_SIZE
-          return render json: {
-            ok: false,
-            error: "Video #{i + 1}: exceeds 200MB limit"
-          }, status: :bad_request
-        end
-      end
-
       bulletin = DebugBulletin.create!(status: "draft")
 
-      videos.each_with_index do |video, i|
-        story = bulletin.debug_stories.create!(
-          story_number: i + 1,
-          story_type: "video",
-          user_context: contexts[i].presence,
-          status: "pending"
-        )
-        story.media.attach(video)
-      end
+      Rails.logger.info("[debug_news] Created bulletin ##{bulletin.id}")
 
-      Rails.logger.info("[debug_news] Created bulletin ##{bulletin.id} with #{videos.length} stories")
-
-      render json: {
-        ok: true,
-        bulletin_id: bulletin.id,
-        story_count: bulletin.debug_stories.count
-      }
+      render json: { ok: true, bulletin_id: bulletin.id }
     rescue => e
       Rails.logger.error("[debug_news] Create bulletin failed: #{e.message}")
       render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # POST /debug/mock_news/bulletins/:id/stories
+    # Receives ONE video, analyzes synchronously via Gemini, enqueues storage
+    def analyze_story
+      bulletin = DebugBulletin.find(params[:id])
+
+      video = params[:video]
+      unless video.present? && video.respond_to?(:tempfile)
+        return render json: { ok: false, error: "No video file provided" }, status: :bad_request
+      end
+
+      unless ALLOWED_TYPES.include?(video.content_type)
+        return render json: { ok: false, error: "Unsupported video type: #{video.content_type}" }, status: :bad_request
+      end
+
+      if video.size > MAX_FILE_SIZE
+        return render json: { ok: false, error: "Video exceeds 200MB limit" }, status: :bad_request
+      end
+
+      story_number = (params[:story_number] || bulletin.debug_stories.count + 1).to_i
+      user_context = params[:user_context].presence
+
+      story = bulletin.debug_stories.create!(
+        story_number: story_number,
+        story_type: "video",
+        user_context: user_context,
+        status: "analyzing",
+        original_filename: video.original_filename,
+        content_type: video.content_type
+      )
+
+      Rails.logger.info("[debug_news] Analyzing story ##{story.story_number} (id=#{story.id}, #{(video.size / 1e6).round(1)} MB)")
+
+      # 1. Upload to Gemini File API
+      file_manager = Gemini::FileManager.new
+      gemini_file = file_manager.upload_and_wait(
+        video.tempfile.path,
+        mime_type: video.content_type,
+        display_name: "debug_story_#{story.story_number}"
+      )
+
+      # 2. Generate analysis with Gemini
+      Rails.logger.info("[debug_news] File ACTIVE, running analysis prompt...")
+      generator = Gemini::ContentGenerator.new
+      prompt = DebugNews::PromptBuilder.story_analysis_prompt(
+        story_number: story.story_number,
+        user_context: story.user_context
+      )
+
+      result = generator.generate_with_file(
+        file_uri: gemini_file[:uri],
+        file_mime_type: gemini_file[:mimeType],
+        prompt: prompt,
+        temperature: 0.3,
+        json_response: true
+      )
+
+      # 3. Parse and store results
+      parsed = JSON.parse(result[:text], symbolize_names: true)
+      Rails.logger.info("[debug_news] Got title=#{parsed[:storyTitle]}, emoji=#{parsed[:storyEmoji]}")
+
+      story.update!(
+        gemini_json: parsed,
+        story_title: parsed[:storyTitle],
+        story_emoji: parsed[:storyEmoji],
+        intro_text: parsed[:introText],
+        subtitle_segments: parsed[:subtitleSegments],
+        status: "done",
+        error_message: nil
+      )
+
+      # 4. Copy temp file to staging dir for background storage job
+      FileUtils.mkdir_p(STAGING_DIR)
+      staging_path = STAGING_DIR.join("story_#{story.id}#{File.extname(video.original_filename)}")
+      FileUtils.cp(video.tempfile.path, staging_path)
+      story.update!(temp_file_path: staging_path.to_s)
+
+      # 5. Enqueue background ActiveStorage attach
+      StoreDebugVideoJob.perform_later(story.id)
+
+      # 6. Clean up Gemini file
+      file_manager.delete_file(gemini_file[:name])
+      Rails.logger.info("[debug_news] Story ##{story.story_number} analyzed, storage job enqueued")
+
+      render json: {
+        ok: true,
+        story: {
+          id: story.id,
+          story_number: story.story_number,
+          story_title: story.story_title,
+          story_emoji: story.story_emoji,
+          intro_text: story.intro_text,
+          status: story.status
+        }
+      }
+    rescue => e
+      Rails.logger.error("[debug_news] analyze_story failed: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
+      story&.update(status: "failed", error_message: e.message) if story&.persisted?
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # GET /debug/mock_news/stories/:id/video
+    # Stable video URL — serves from ActiveStorage or temp file fallback
+    def serve_video
+      story = DebugStory.find(params[:id])
+
+      if story.media.attached?
+        redirect_to Rails.application.routes.url_helpers.rails_blob_path(story.media, only_path: true), allow_other_host: false
+      elsif story.temp_file_path.present? && File.exist?(story.temp_file_path)
+        send_file story.temp_file_path,
+                  type: story.content_type || "video/mp4",
+                  disposition: "inline"
+      else
+        head :not_found
+      end
     end
 
     # POST /debug/mock_news/bulletins/:id/weather
@@ -97,36 +179,6 @@ module Debug
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end
 
-    # POST /debug/mock_news/bulletins/:id/analyze
-    def analyze
-      bulletin = DebugBulletin.find(params[:id])
-      pending_stories = bulletin.debug_stories.where(status: %w[pending failed])
-
-      if pending_stories.none?
-        return render json: { ok: false, error: "No stories to analyze" }, status: :unprocessable_entity
-      end
-
-      bulletin.update!(status: "analyzing")
-
-      # Reset failed stories back to pending
-      pending_stories.where(status: "failed").update_all(status: "pending", error_message: nil)
-
-      pending_stories.each do |story|
-        AnalyzeDebugStoryJob.perform_later(story.id)
-      end
-
-      Rails.logger.info("[debug_news] Enqueued #{pending_stories.count} analysis jobs for bulletin ##{bulletin.id}")
-
-      render json: {
-        ok: true,
-        bulletin_id: bulletin.id,
-        jobs_enqueued: pending_stories.count
-      }
-    rescue => e
-      Rails.logger.error("[debug_news] Analyze failed: #{e.message}")
-      render json: { ok: false, error: e.message }, status: :internal_server_error
-    end
-
     # GET /debug/mock_news/bulletins/:id/status
     def status
       bulletin = DebugBulletin.find(params[:id])
@@ -135,7 +187,6 @@ module Debug
         {
           id: s.id,
           story_number: s.story_number,
-          filename: s.media.attached? ? s.media.filename.to_s : nil,
           status: s.status,
           story_title: s.story_title,
           story_emoji: s.story_emoji,
@@ -210,10 +261,6 @@ module Debug
 
     def assemble_master_json(bulletin)
       stories_data = bulletin.debug_stories.where(status: "done").order(:story_number).map do |story|
-        video_url = if story.media.attached?
-          Rails.application.routes.url_helpers.rails_blob_path(story.media, only_path: true)
-        end
-
         {
           storyId: story.id,
           storyNumber: story.story_number,
@@ -223,7 +270,7 @@ module Debug
           studioHeadline: story.gemini_json&.dig("studioHeadline") || story.story_title&.upcase,
           introText: story.intro_text,
           subtitleSegments: story.subtitle_segments,
-          videoUrl: video_url,
+          videoUrl: "/debug/mock_news/stories/#{story.id}/video",
           ttsUrl: nil
         }
       end

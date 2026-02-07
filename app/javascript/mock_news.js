@@ -4,7 +4,6 @@
 
 let bulletinId = null;
 let masterJson = null;
-let pollTimer = null;
 
 // Accumulated video files (File objects — lost on reload, but context survives)
 let collectedFiles = [];
@@ -243,9 +242,8 @@ function makeInputRow(filename, question, step, fileIndex) {
 
 // ── Button Bindings ───────────────────────────
 function bindButtons() {
-  document.getElementById("btn-upload-videos").addEventListener("click", uploadVideos);
+  document.getElementById("btn-upload-videos").addEventListener("click", uploadAndAnalyze);
   document.getElementById("btn-fetch-weather").addEventListener("click", fetchWeather);
-  document.getElementById("btn-analyze").addEventListener("click", analyzeVideos);
   document.getElementById("btn-build").addEventListener("click", buildBulletin);
   document.getElementById("btn-play").addEventListener("click", playBulletin);
   document.getElementById("btn-clear-log").addEventListener("click", () => {
@@ -255,42 +253,153 @@ function bindButtons() {
   document.getElementById("btn-player-stop")?.addEventListener("click", stopPlayer);
 }
 
-// ── Upload Videos & Create Bulletin ───────────
-async function uploadVideos() {
+// ── Upload & Analyze (sequential, one video at a time) ───
+async function uploadAndAnalyze() {
   if (!collectedFiles.length) return;
-  const formData = new FormData();
-  collectedFiles.forEach((file, i) => {
-    formData.append("videos[]", file);
-    formData.append("user_context[]", buildContextString(getContext(file.name)));
-  });
 
-  log("Uploading " + collectedFiles.length + " video(s)...");
   setButtonLoading("btn-upload-videos", true);
+  const statusList = document.getElementById("story-status-list");
+  statusList.classList.remove("hidden");
+  statusList.innerHTML = "";
 
   try {
-    const resp = await fetch("/debug/mock_news/bulletins", {
+    // 1. Create lightweight bulletin (no files)
+    log("Creating bulletin...");
+    const bulletinResp = await fetch("/debug/mock_news/bulletins", {
       method: "POST",
-      headers: { "X-CSRF-Token": csrfToken() },
-      body: formData
+      headers: { "X-CSRF-Token": csrfToken(), "Content-Type": "application/json" }
     });
-    const data = await resp.json();
-    if (data.ok) {
-      bulletinId = data.bulletin_id;
-      log("Bulletin #" + bulletinId + " created with " + data.story_count + " stories.");
-      showToast("Bulletin Created", data.story_count + " stories ready", "success");
-      document.getElementById("btn-fetch-weather").disabled = false;
-      document.getElementById("btn-analyze").disabled = false;
-      document.getElementById("upload-status").textContent = "Bulletin #" + bulletinId;
-    } else {
-      log("ERROR: " + data.error);
-      showToast("Upload Failed", data.error, "error");
+    const bulletinData = await bulletinResp.json();
+    if (!bulletinData.ok) {
+      log("ERROR: " + bulletinData.error);
+      showToast("Create Failed", bulletinData.error, "error");
+      return;
     }
+
+    bulletinId = bulletinData.bulletin_id;
+    log("Bulletin #" + bulletinId + " created.");
+    document.getElementById("upload-status").textContent = "Bulletin #" + bulletinId;
+    document.getElementById("btn-fetch-weather").disabled = false;
+
+    // 2. Analyze each video sequentially
+    let doneCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < collectedFiles.length; i++) {
+      const file = collectedFiles[i];
+      const storyNumber = i + 1;
+      const userContext = buildContextString(getContext(file.name));
+
+      // Show "analyzing" status for this video
+      renderStoryStatus(statusList, {
+        story_number: storyNumber,
+        status: "analyzing",
+        story_emoji: null,
+        story_title: null,
+        filename: file.name,
+        error_message: null
+      });
+
+      log(`[${storyNumber}/${collectedFiles.length}] Uploading & analyzing "${file.name}"...`);
+
+      try {
+        const formData = new FormData();
+        formData.append("video", file);
+        formData.append("story_number", storyNumber);
+        if (userContext) formData.append("user_context", userContext);
+
+        const resp = await fetch(`/debug/mock_news/bulletins/${bulletinId}/stories`, {
+          method: "POST",
+          headers: { "X-CSRF-Token": csrfToken() },
+          body: formData,
+          signal: AbortSignal.timeout(600000) // 10 min timeout
+        });
+
+        const data = await resp.json();
+        if (data.ok) {
+          doneCount++;
+          const story = data.story;
+          log(`[${storyNumber}/${collectedFiles.length}] ${story.story_emoji || "✅"} "${story.story_title}"`);
+          updateStoryStatus(statusList, storyNumber, {
+            story_number: storyNumber,
+            status: "done",
+            story_emoji: story.story_emoji,
+            story_title: story.story_title,
+            filename: file.name,
+            error_message: null
+          });
+          showToast("Story Analyzed", `${story.story_emoji} ${story.story_title}`, "success");
+        } else {
+          failedCount++;
+          log(`[${storyNumber}/${collectedFiles.length}] FAILED: ${data.error}`);
+          updateStoryStatus(statusList, storyNumber, {
+            story_number: storyNumber,
+            status: "failed",
+            story_emoji: null,
+            story_title: null,
+            filename: file.name,
+            error_message: data.error
+          });
+          showToast("Analysis Failed", `Story ${storyNumber}: ${data.error}`, "error");
+        }
+      } catch (err) {
+        failedCount++;
+        log(`[${storyNumber}/${collectedFiles.length}] FAILED: ${err.message}`);
+        updateStoryStatus(statusList, storyNumber, {
+          story_number: storyNumber,
+          status: "failed",
+          story_emoji: null,
+          story_title: null,
+          filename: file.name,
+          error_message: err.message
+        });
+        showToast("Analysis Failed", `Story ${storyNumber}: ${err.message}`, "error");
+      }
+    }
+
+    // 3. All done — enable Build
+    log(`All stories processed: ${doneCount} done, ${failedCount} failed.`);
+    if (doneCount > 0) {
+      document.getElementById("btn-build").disabled = false;
+      showToast("All Analyzed", `${doneCount} stories ready to build`, "success");
+    }
+
   } catch (err) {
     log("Upload failed: " + err.message);
     showToast("Upload Failed", err.message, "error");
   } finally {
     setButtonLoading("btn-upload-videos", false);
   }
+}
+
+// ── Story status rendering helpers ───────────
+function renderStoryStatus(container, s) {
+  const div = document.createElement("div");
+  div.className = "flex items-center gap-3 p-2 rounded bg-base-200";
+  div.dataset.storyNumber = s.story_number;
+  div.innerHTML = storyStatusHtml(s);
+  container.appendChild(div);
+}
+
+function updateStoryStatus(container, storyNumber, s) {
+  const div = container.querySelector(`[data-story-number="${storyNumber}"]`);
+  if (div) {
+    div.innerHTML = storyStatusHtml(s);
+  }
+}
+
+function storyStatusHtml(s) {
+  const bc = { pending: "badge-ghost", analyzing: "badge-warning", done: "badge-success", failed: "badge-error" }[s.status] || "badge-ghost";
+  const spinner = s.status === "analyzing" ? '<span class="loading loading-spinner loading-xs"></span>' : '';
+  return `
+    <span class="badge ${bc} badge-sm gap-1">${spinner}${s.status}</span>
+    <span class="text-sm flex-1">
+      ${s.story_emoji || "📹"} Story ${s.story_number}:
+      <strong>${escapeHtml(s.story_title || "Analyzing...")}</strong>
+      ${s.filename ? `<span class="text-xs text-base-content/40">(${escapeHtml(s.filename)})</span>` : ""}
+    </span>
+    ${s.error_message ? `<span class="text-xs text-error max-w-xs truncate">${escapeHtml(s.error_message)}</span>` : ""}
+  `;
 }
 
 // ── Fetch Weather ─────────────────────────────
@@ -324,90 +433,6 @@ async function fetchWeather() {
   } finally {
     setButtonLoading("btn-fetch-weather", false);
   }
-}
-
-// ── Analyze Videos ────────────────────────────
-async function analyzeVideos() {
-  if (!bulletinId) return log("ERROR: Create a bulletin first");
-  log("Starting Gemini analysis...");
-  setButtonLoading("btn-analyze", true);
-
-  try {
-    const resp = await fetch(`/debug/mock_news/bulletins/${bulletinId}/analyze`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken(), "Accept": "application/json" }
-    });
-    const data = await resp.json();
-    if (data.ok) {
-      log("Analysis started: " + data.jobs_enqueued + " jobs enqueued.");
-      document.getElementById("story-status-list").classList.remove("hidden");
-      showToast("Analysis Started", data.jobs_enqueued + " videos being analyzed", "info");
-      startPolling();
-    } else {
-      log("Analyze error: " + data.error);
-      showToast("Analyze Failed", data.error, "error");
-      setButtonLoading("btn-analyze", false);
-    }
-  } catch (err) {
-    log("Analyze failed: " + err.message);
-    setButtonLoading("btn-analyze", false);
-  }
-}
-
-// ── Polling ───────────────────────────────────
-function startPolling() {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(pollStatus, 3000);
-  pollStatus();
-}
-
-async function pollStatus() {
-  if (!bulletinId) return;
-  try {
-    const resp = await fetch(`/debug/mock_news/bulletins/${bulletinId}/status`);
-    const data = await resp.json();
-    if (!data.ok) return;
-
-    renderStoryStatuses(data.stories);
-
-    const allDone = data.stories.every(s => s.status === "done" || s.status === "failed");
-    if (allDone && pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-      setButtonLoading("btn-analyze", false);
-
-      const doneCount = data.stories.filter(s => s.status === "done").length;
-      const failedCount = data.stories.filter(s => s.status === "failed").length;
-      log(`All stories processed: ${doneCount} done, ${failedCount} failed.`);
-
-      if (doneCount > 0) {
-        document.getElementById("btn-build").disabled = false;
-        showToast("Analysis Complete", doneCount + " stories analyzed", "success");
-      }
-      if (failedCount > 0) showToast("Some Failed", failedCount + " stories failed", "warning");
-    }
-  } catch (err) { log("Poll error: " + err.message); }
-}
-
-function renderStoryStatuses(stories) {
-  const container = document.getElementById("story-status-list");
-  container.innerHTML = "";
-  stories.forEach(s => {
-    const bc = { pending: "badge-ghost", analyzing: "badge-warning", done: "badge-success", failed: "badge-error" }[s.status] || "badge-ghost";
-    const spinner = s.status === "analyzing" ? '<span class="loading loading-spinner loading-xs"></span>' : '';
-    const div = document.createElement("div");
-    div.className = "flex items-center gap-3 p-2 rounded bg-base-200";
-    div.innerHTML = `
-      <span class="badge ${bc} badge-sm gap-1">${spinner}${s.status}</span>
-      <span class="text-sm flex-1">
-        ${s.story_emoji || "📹"} Story ${s.story_number}:
-        <strong>${escapeHtml(s.story_title || "Analyzing...")}</strong>
-        ${s.filename ? `<span class="text-xs text-base-content/40">(${escapeHtml(s.filename)})</span>` : ""}
-      </span>
-      ${s.error_message ? `<span class="text-xs text-error max-w-xs truncate">${escapeHtml(s.error_message)}</span>` : ""}
-    `;
-    container.appendChild(div);
-  });
 }
 
 // ── Build Bulletin ────────────────────────────

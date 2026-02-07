@@ -24,7 +24,8 @@ Rails.application.routes.draw do
     get  "mock_news",                       to: "debug/mock_news#show"
     post "mock_news/bulletins",             to: "debug/mock_news#create_bulletin"
     post "mock_news/bulletins/:id/weather", to: "debug/mock_news#fetch_weather"
-    post "mock_news/bulletins/:id/analyze", to: "debug/mock_news#analyze"
+    post "mock_news/bulletins/:id/stories", to: "debug/mock_news#analyze_story"
+    get  "mock_news/stories/:id/video",     to: "debug/mock_news#serve_video"
     get  "mock_news/bulletins/:id/status",  to: "debug/mock_news#status"
     post "mock_news/bulletins/:id/build",   to: "debug/mock_news#build"
     get  "mock_news/bulletins/:id",         to: "debug/mock_news#show_bulletin",
