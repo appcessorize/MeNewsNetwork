@@ -41,12 +41,18 @@ const QUESTIONS = [
   { key: "extra", text: "Anything else we should know?",  placeholder: "e.g. happened yesterday, birthday party...", skip: "No" }
 ];
 
-document.addEventListener("DOMContentLoaded", () => {
+function init() {
   bindFileInput();
   bindButtons();
   restoreSavedVideos();
   log("Mock News debug page ready.");
-});
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
 
 // ── CSRF Token ────────────────────────────────
 function csrfToken() {

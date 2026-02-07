@@ -54,7 +54,7 @@ const AI_RESPONSES = [
 let USER_AVATAR = "";
 let USER_NAME = "You";
 
-document.addEventListener("DOMContentLoaded", () => {
+function init() {
   const chatEl = document.getElementById("chat-messages");
   if (chatEl) {
     USER_AVATAR = chatEl.dataset.userAvatar || "";
@@ -63,7 +63,13 @@ document.addEventListener("DOMContentLoaded", () => {
   initBroadcastCountdown();
   renderMockMessages();
   initChatInput();
-});
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
 
 // ── Broadcast Countdown ──────────────────────
 function initBroadcastCountdown() {

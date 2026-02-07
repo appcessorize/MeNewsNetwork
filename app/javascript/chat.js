@@ -43,7 +43,7 @@ let recordingSeconds = 0;
 const MAX_RECORDING_SECONDS = 30;
 
 // ── Init ─────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
+function init() {
   const page = document.getElementById("chat-page");
   if (!page) return;
 
@@ -57,7 +57,13 @@ document.addEventListener("DOMContentLoaded", () => {
   initVoiceRecording();
   initKeyboardHandling();
   scrollToBottom();
-});
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
 
 // ── Text Input ───────────────────────────────
 function initTextInput() {
