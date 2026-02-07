@@ -69,10 +69,12 @@ function bindFileInput() {
   const input = document.getElementById("video-input");
   input.addEventListener("change", () => {
     Array.from(input.files).forEach(f => {
-      collectedFiles.push(f);
-      const ctx = getContext(f.name);
+      // Clone File so it survives input.value="" on iOS Safari
+      const clone = new File([f], f.name, { type: f.type, lastModified: f.lastModified });
+      collectedFiles.push(clone);
+      const ctx = getContext(clone.name);
       if (ctx.step === 0 && !ctx.who && !ctx.where && !ctx.extra) {
-        setContext(f.name, { who: null, where: null, extra: null, step: 0 });
+        setContext(clone.name, { who: null, where: null, extra: null, step: 0 });
       }
     });
     input.value = "";
