@@ -145,7 +145,7 @@ module Api
     # POST /api/chat/generate
     def generate
       analysis = params[:analysis] || ""
-      answers = params[:answers] || {}
+      answers = (params[:answers] || {}).to_unsafe_h
       media_type = params[:media_type] || "text"
 
       extra_notes = answers.select { |k, _| k.to_s.start_with?("followup_") }

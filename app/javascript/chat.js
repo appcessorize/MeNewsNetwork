@@ -20,6 +20,12 @@ const JOURNALIST_QUESTIONS = [
   { key: "context", text: "What's the story here? Any extra context?" },
 ];
 
+const SUGGESTION_MAP = {
+  who: "members",
+  when: ["Just now", "Today", "Yesterday", "This week"],
+  where: ["Home", "Work", "Out and about"],
+};
+
 let state = STATE.IDLE;
 let currentAnalysis = null;
 let currentSessionId = null;
@@ -29,6 +35,12 @@ let contextAnswers = {};
 let contextQuestionIndex = 0;
 let followUpQuestions = [];
 let followUpIndex = 0;
+
+// Background upload state
+let analysisPromise = null;
+let analysisComplete = false;
+let questionsComplete = false;
+let storyGenerationStarted = false;
 
 let USER_AVATAR = "";
 let USER_NAME = "You";
@@ -55,6 +67,7 @@ function init() {
   initTextInput();
   initMediaButtons();
   initVoiceRecording();
+  initSkipButton();
   initKeyboardHandling();
   scrollToBottom();
 }
@@ -69,14 +82,12 @@ if (document.readyState === "loading") {
 function initTextInput() {
   const textarea = document.getElementById("chat-textarea");
   const btnSend = document.getElementById("btn-send");
-  const btnMic = document.getElementById("btn-mic");
-  if (!textarea || !btnSend || !btnMic) return;
+  if (!textarea || !btnSend) return;
 
   // Auto-grow
   textarea.addEventListener("input", () => {
     textarea.style.height = "auto";
     textarea.style.height = Math.min(textarea.scrollHeight, 100) + "px";
-    toggleSendMic();
   });
 
   // Send on Enter
@@ -90,30 +101,15 @@ function initTextInput() {
   btnSend.addEventListener("click", handleSend);
 }
 
-function toggleSendMic() {
-  const textarea = document.getElementById("chat-textarea");
-  const btnSend = document.getElementById("btn-send");
-  const btnMic = document.getElementById("btn-mic");
-  if (!textarea || !btnSend || !btnMic) return;
-
-  if (textarea.value.trim()) {
-    btnMic.classList.add("hidden");
-    btnSend.classList.remove("hidden");
-  } else {
-    btnSend.classList.add("hidden");
-    btnMic.classList.remove("hidden");
-  }
-}
-
-function handleSend() {
+function handleSend(overrideText) {
   const textarea = document.getElementById("chat-textarea");
   if (!textarea) return;
-  const text = textarea.value.trim();
+
+  const text = (typeof overrideText === "string" ? overrideText : textarea.value.trim());
   if (!text) return;
 
   textarea.value = "";
   textarea.style.height = "auto";
-  toggleSendMic();
 
   appendUserMessage(text);
 
@@ -122,12 +118,34 @@ function handleSend() {
   } else if (state === STATE.ASKING_FOLLOWUP) {
     handleFollowUpAnswer(text);
   } else if (state === STATE.SUGGESTING_COMMENTERS) {
-    // Text during commenter suggestion — treat as "done"
     finishStory();
   } else {
-    // IDLE — treat as a text story
     handleTextSubmission(text);
   }
+}
+
+// ── Skip Button ──────────────────────────────
+function initSkipButton() {
+  const btnSkip = document.getElementById("btn-skip");
+  if (!btnSkip) return;
+
+  btnSkip.addEventListener("click", () => {
+    if (state === STATE.ASKING_CONTEXT) {
+      appendUserMessage("skip");
+      handleContextAnswer("skip");
+    } else if (state === STATE.ASKING_FOLLOWUP) {
+      appendUserMessage("skip");
+      handleFollowUpAnswer("skip");
+    }
+  });
+}
+
+function updateSkipButton() {
+  const btnSkip = document.getElementById("btn-skip");
+  if (!btnSkip) return;
+
+  const isAsking = state === STATE.ASKING_CONTEXT || state === STATE.ASKING_FOLLOWUP;
+  btnSkip.classList.toggle("hidden", !isAsking);
 }
 
 // ── Media Buttons ────────────────────────────
@@ -158,6 +176,19 @@ function initMediaButtons() {
       e.target.value = "";
     });
   }
+}
+
+function updateToolbarState() {
+  const btnPhoto = document.getElementById("btn-photo");
+  const btnVideo = document.getElementById("btn-video");
+  const btnMic = document.getElementById("btn-mic");
+
+  const disabled = state !== STATE.IDLE;
+  if (btnPhoto) btnPhoto.style.opacity = disabled ? "0.3" : "1";
+  if (btnVideo) btnVideo.style.opacity = disabled ? "0.3" : "1";
+  if (btnMic) btnMic.style.opacity = disabled ? "0.3" : "1";
+
+  updateSkipButton();
 }
 
 // ── Voice Recording ──────────────────────────
@@ -217,17 +248,14 @@ function stopRecording() {
 
 function updateRecordingUI(isRecording) {
   const indicator = document.getElementById("recording-indicator");
-  const btnMic = document.getElementById("btn-mic");
-  const btnPhoto = document.getElementById("btn-photo");
-  const btnVideo = document.getElementById("btn-video");
+  const toolbar = document.getElementById("chat-toolbar");
   const textarea = document.getElementById("chat-textarea");
+  const btnSend = document.getElementById("btn-send");
 
   if (indicator) indicator.classList.toggle("hidden", !isRecording);
-  if (btnMic) btnMic.classList.toggle("recording", isRecording);
-  if (btnMic) btnMic.classList.toggle("hidden", isRecording);
-  if (btnPhoto) btnPhoto.classList.toggle("hidden", isRecording);
-  if (btnVideo) btnVideo.classList.toggle("hidden", isRecording);
+  if (toolbar) toolbar.classList.toggle("hidden", isRecording);
   if (textarea) textarea.classList.toggle("hidden", isRecording);
+  if (btnSend) btnSend.classList.toggle("hidden", isRecording);
 }
 
 function getSupportedAudioMime() {
@@ -262,6 +290,65 @@ function initKeyboardHandling() {
   window.visualViewport.addEventListener("scroll", () => {
     inputBar.style.transform = `translateY(${window.visualViewport.offsetTop}px)`;
   });
+}
+
+// ── Suggestion Pills ─────────────────────────
+function showSuggestionPills(questionKey) {
+  const container = document.getElementById("suggestion-pills");
+  if (!container) return;
+
+  container.innerHTML = "";
+  const suggestions = SUGGESTION_MAP[questionKey];
+  if (!suggestions) {
+    container.classList.add("hidden");
+    return;
+  }
+
+  let pills = [];
+  if (suggestions === "members") {
+    // "Me" pill
+    pills.push({ text: USER_NAME, avatar: USER_AVATAR, label: "Me" });
+    // Group member pills
+    GROUP_MEMBERS.forEach((m) => {
+      pills.push({ text: m.name, avatar: m.avatar_url, label: m.name });
+    });
+  } else {
+    pills = suggestions.map((s) => ({ text: s, label: s }));
+  }
+
+  if (pills.length === 0) {
+    container.classList.add("hidden");
+    return;
+  }
+
+  pills.forEach((p) => {
+    const pill = document.createElement("button");
+    pill.className = "suggestion-pill";
+    pill.type = "button";
+
+    let inner = "";
+    if (p.avatar) {
+      inner += `<img src="${escapeAttr(p.avatar)}" class="w-5 h-5 rounded-full" alt="" referrerpolicy="no-referrer" />`;
+    }
+    inner += `<span>${escapeHtml(p.label)}</span>`;
+    pill.innerHTML = inner;
+
+    pill.addEventListener("click", () => {
+      hideSuggestionPills();
+      handleSend(p.text);
+    });
+    container.appendChild(pill);
+  });
+
+  container.classList.remove("hidden");
+}
+
+function hideSuggestionPills() {
+  const container = document.getElementById("suggestion-pills");
+  if (container) {
+    container.innerHTML = "";
+    container.classList.add("hidden");
+  }
 }
 
 // ── Message Rendering ────────────────────────
@@ -335,7 +422,6 @@ function appendMediaPreview(file, type) {
     vid.controls = false;
     vid.poster = "";
     previewEl.appendChild(vid);
-    // Auto-grab first frame
     vid.addEventListener("loadeddata", () => { vid.currentTime = 0.1; });
   } else if (type === "audio") {
     previewEl.innerHTML = `<div class="flex items-center gap-2 px-3 py-2 bg-base-200 rounded-xl">
@@ -435,12 +521,13 @@ async function handleTextSubmission(text) {
   currentMediaType = "text";
   currentAnalysis = text;
   currentMediaFile = null;
+  analysisComplete = true;
 
   await appendBotMessage("Got it! Let me ask you a few journalist questions about this.");
   startContextQuestions();
 }
 
-// ── Media Flow ───────────────────────────────
+// ── Media Flow (Background Upload) ──────────
 async function handleMediaSelected(file, type) {
   if (state !== STATE.IDLE) return;
 
@@ -449,42 +536,51 @@ async function handleMediaSelected(file, type) {
 
   appendMediaPreview(file, type);
 
-  state = STATE.UPLOADING;
-  await appendBotMessage(`Uploading your ${type}...`);
+  await appendBotMessage(`Got it! I'll analyze your ${type} while we chat.`);
 
-  try {
-    state = STATE.ANALYZING;
-    const typing = showTypingIndicator();
+  // Fire background analysis (don't await)
+  startBackgroundAnalysis(file, type);
 
-    const formData = new FormData();
-    formData.append("media", file);
-    formData.append("media_type", type);
+  // Start questions immediately
+  startContextQuestions();
+}
 
-    const response = await fetch("/api/chat/analyze", {
-      method: "POST",
-      body: formData,
+function startBackgroundAnalysis(file, type) {
+  analysisComplete = false;
+
+  const formData = new FormData();
+  formData.append("media", file);
+  formData.append("media_type", type);
+
+  analysisPromise = fetch("/api/chat/analyze", {
+    method: "POST",
+    body: formData,
+  })
+    .then((r) => r.json())
+    .then((data) => {
+      if (data.ok) {
+        currentAnalysis = data.analysis;
+        currentSessionId = data.session_id;
+        followUpQuestions = data.follow_up_questions || [];
+      } else {
+        currentAnalysis = currentAnalysis || `[${type} uploaded — analysis unavailable]`;
+        followUpQuestions = [];
+      }
+      analysisComplete = true;
+
+      if (questionsComplete && !storyGenerationStarted) {
+        generateStory();
+      }
+    })
+    .catch(() => {
+      currentAnalysis = currentAnalysis || `[${type} uploaded — analysis failed]`;
+      followUpQuestions = [];
+      analysisComplete = true;
+
+      if (questionsComplete && !storyGenerationStarted) {
+        generateStory();
+      }
     });
-
-    typing.remove();
-
-    const data = await response.json();
-    if (!data.ok) {
-      state = STATE.IDLE;
-      await appendBotMessage(`Hmm, I had trouble analyzing that: ${data.error}`);
-      return;
-    }
-
-    currentAnalysis = data.analysis;
-    currentSessionId = data.session_id;
-    followUpQuestions = data.follow_up_questions || [];
-
-    await appendBotMessage(data.analysis);
-    await appendBotMessage("Let me ask you a few journalist questions about this.");
-    startContextQuestions();
-  } catch (err) {
-    state = STATE.IDLE;
-    await appendBotMessage("Something went wrong with the upload. Please try again.");
-  }
 }
 
 // ── Context Questions ────────────────────────
@@ -492,28 +588,33 @@ function startContextQuestions() {
   state = STATE.ASKING_CONTEXT;
   contextAnswers = {};
   contextQuestionIndex = 0;
+  updateToolbarState();
   askNextContextQuestion();
 }
 
 async function askNextContextQuestion() {
   if (contextQuestionIndex >= JOURNALIST_QUESTIONS.length) {
-    // All base questions asked — check for Gemini follow-ups
-    if (followUpQuestions.length > 0) {
+    // All base questions asked — check for follow-ups
+    if (analysisComplete && followUpQuestions.length > 0) {
       followUpIndex = 0;
       state = STATE.ASKING_FOLLOWUP;
+      updateToolbarState();
       await appendBotMessage("A couple more specific questions...");
       askNextFollowUp();
     } else {
-      generateStory();
+      onQuestionsComplete();
     }
     return;
   }
 
   const q = JOURNALIST_QUESTIONS[contextQuestionIndex];
-  await appendBotMessage(q.text + ' (Type "skip" to skip)');
+  await appendBotMessage(q.text);
+  showSuggestionPills(q.key);
+  updateToolbarState();
 }
 
 function handleContextAnswer(text) {
+  hideSuggestionPills();
   const q = JOURNALIST_QUESTIONS[contextQuestionIndex];
   if (text.toLowerCase() !== "skip") {
     contextAnswers[q.key] = text;
@@ -525,13 +626,15 @@ function handleContextAnswer(text) {
 // ── Follow-up Questions ──────────────────────
 async function askNextFollowUp() {
   if (followUpIndex >= followUpQuestions.length) {
-    generateStory();
+    onQuestionsComplete();
     return;
   }
-  await appendBotMessage(followUpQuestions[followUpIndex] + ' (Type "skip" to skip)');
+  await appendBotMessage(followUpQuestions[followUpIndex]);
+  updateToolbarState();
 }
 
 function handleFollowUpAnswer(text) {
+  hideSuggestionPills();
   if (text.toLowerCase() !== "skip") {
     contextAnswers[`followup_${followUpIndex}`] = text;
   }
@@ -539,9 +642,28 @@ function handleFollowUpAnswer(text) {
   askNextFollowUp();
 }
 
+// ── Questions Complete — Wait or Generate ────
+async function onQuestionsComplete() {
+  questionsComplete = true;
+  hideSuggestionPills();
+  state = STATE.GENERATING;
+  updateToolbarState();
+
+  if (analysisComplete) {
+    generateStory();
+  } else {
+    await appendBotMessage("Just finishing up the analysis...");
+    // The background promise will call generateStory() when it resolves
+  }
+}
+
 // ── Story Generation ─────────────────────────
 async function generateStory() {
+  if (storyGenerationStarted) return;
+  storyGenerationStarted = true;
+
   state = STATE.GENERATING;
+  updateToolbarState();
   await appendBotMessage("Alright, putting your story together...");
   const typing = showTypingIndicator();
 
@@ -562,6 +684,7 @@ async function generateStory() {
 
     if (!data.ok) {
       state = STATE.IDLE;
+      updateToolbarState();
       await appendBotMessage(`I had trouble generating the story: ${data.error}`);
       return;
     }
@@ -580,6 +703,7 @@ async function generateStory() {
   } catch (err) {
     typing.remove();
     state = STATE.IDLE;
+    updateToolbarState();
     await appendBotMessage("Something went wrong generating the story. Please try again.");
   }
 }
@@ -622,6 +746,7 @@ function appendNewsCard(headline, body) {
 // ── Commenter Suggestions ────────────────────
 async function suggestCommenters(storyId) {
   state = STATE.SUGGESTING_COMMENTERS;
+  updateToolbarState();
 
   await appendBotMessage(`Want anyone from ${GROUP_NAME || "your group"} to comment on this?`);
 
@@ -693,6 +818,12 @@ function resetState() {
   contextQuestionIndex = 0;
   followUpQuestions = [];
   followUpIndex = 0;
+  analysisPromise = null;
+  analysisComplete = false;
+  questionsComplete = false;
+  storyGenerationStarted = false;
+  hideSuggestionPills();
+  updateToolbarState();
 }
 
 // ── Utility ──────────────────────────────────

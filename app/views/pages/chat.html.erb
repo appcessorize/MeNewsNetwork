@@ -65,8 +65,11 @@
 
   <!-- Input Bar -->
   <div id="chat-input-bar" class="chat-input-bar">
-    <div class="flex items-end gap-2 w-full">
-      <!-- Media buttons -->
+    <!-- Suggestion pills (contextual, hidden by default) -->
+    <div id="suggestion-pills" class="suggestion-pills hidden"></div>
+
+    <!-- Toolbar: media buttons + skip -->
+    <div id="chat-toolbar" class="chat-toolbar">
       <button id="btn-photo" type="button" class="media-btn" title="Send photo">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -78,19 +81,20 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
         </svg>
       </button>
-
-      <!-- Text input -->
-      <div class="flex-1 min-w-0">
-        <textarea id="chat-textarea" class="chat-textarea" rows="1" placeholder="Message..." enterkeyhint="send"></textarea>
-      </div>
-
-      <!-- Mic / Send button -->
       <button id="btn-mic" type="button" class="media-btn media-btn-mic" title="Record voice note">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3z" />
         </svg>
       </button>
-      <button id="btn-send" type="button" class="media-btn media-btn-send hidden" title="Send message">
+      <button id="btn-skip" type="button" class="btn-skip hidden" title="Skip this question">&#x23ED; Skip</button>
+    </div>
+
+    <!-- Input row: textarea + send -->
+    <div class="flex items-end gap-2 w-full pt-1">
+      <div class="flex-1 min-w-0">
+        <textarea id="chat-textarea" class="chat-textarea" rows="1" placeholder="Message..." enterkeyhint="send"></textarea>
+      </div>
+      <button id="btn-send" type="button" class="media-btn media-btn-send" title="Send message">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
           <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1.707-5.293a1 1 0 011.414 0L10 13l.293-.293 2-2a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" transform="rotate(-90 10 10)" />
         </svg>

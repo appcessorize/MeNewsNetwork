@@ -121,7 +121,7 @@
   }
 
   .chat-textarea {
-    @apply w-full bg-base-200 rounded-2xl px-4 py-2 text-sm resize-none leading-snug;
+    @apply w-full bg-base-200 rounded-2xl px-4 py-2 text-base resize-none leading-snug;
     max-height: 100px;
     min-height: 36px;
     outline: none;
@@ -183,6 +183,49 @@
   }
   .member-pill.selected {
     @apply bg-primary text-primary-content;
+  }
+
+  /* Chat toolbar (media buttons + skip) */
+  .chat-toolbar {
+    @apply flex items-center gap-1 px-1 py-1 border-b border-base-200;
+  }
+
+  .chat-toolbar .media-btn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+  .chat-toolbar .media-btn svg {
+    @apply h-5 w-5;
+  }
+
+  .btn-skip {
+    @apply text-xs font-medium text-base-content/50 px-2.5 py-1 rounded-full;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-skip:active {
+    @apply bg-base-200;
+  }
+
+  /* Suggestion pills row */
+  .suggestion-pills {
+    @apply flex gap-2 px-1 py-2 overflow-x-auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .suggestion-pills::-webkit-scrollbar {
+    display: none;
+  }
+
+  .suggestion-pill {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-base-200 text-sm whitespace-nowrap cursor-pointer shrink-0 transition-colors;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .suggestion-pill:hover {
+    @apply bg-base-300;
+  }
+  .suggestion-pill:active {
+    @apply bg-base-300;
   }
 
   /* News item card in chat */
