@@ -46,7 +46,7 @@ Rails.application.routes.draw do
 
   # Analytics proxy (avoids ad-blocker blocking of third-party domain)
   get  "a/script.js", to: "analytics#script"
-  post "a/event",     to: "analytics#event"
+  post "a/api/send",  to: "analytics#event"
 
   get "up" => "rails/health#show", as: :rails_health_check
 
