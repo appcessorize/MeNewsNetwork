@@ -8,8 +8,7 @@ const videoPreviewWrap = document.getElementById("video-preview-wrap");
 const videoPreview = document.getElementById("video-preview");
 const debugEl = document.getElementById("debug");
 const resultsEl = document.getElementById("results");
-const progressWrap = document.getElementById("progress-bar-wrap");
-const progressBar = document.getElementById("progress-bar");
+const progressBar = document.getElementById("progress-bar-wrap"); // Native <progress> element
 const scriptSection = document.getElementById("script-section");
 const newsScriptEl = document.getElementById("news-script");
 const querySection = document.getElementById("query-section");
@@ -21,8 +20,7 @@ const btnTts = document.getElementById("btn-tts");
 const ttsStatus = document.getElementById("tts-status");
 const ttsAudio = document.getElementById("tts-audio");
 const btnCfUpload = document.getElementById("btn-cf-upload");
-const cfProgressWrap = document.getElementById("cf-progress-wrap");
-const cfProgressBar = document.getElementById("cf-progress-bar");
+const cfProgressBar = document.getElementById("cf-progress-wrap"); // Native <progress> element
 const cfStreamSection = document.getElementById("cf-stream-section");
 const cfStatus = document.getElementById("cf-status");
 const cfPlayerWrap = document.getElementById("cf-player-wrap");
@@ -225,8 +223,8 @@ btnAnalyze.addEventListener("click", async () => {
   querySection.hidden = true;
   currentSessionId = null;
   btnAnalyze.disabled = true;
-  progressWrap.hidden = false;
-  progressBar.style.width = "0%";
+  progressBar.hidden = false;
+  progressBar.value = 0;
 
   log(`Upload started: ${file.name} (${(file.size / 1e6).toFixed(1)} MB)`);
 
@@ -267,7 +265,7 @@ btnAnalyze.addEventListener("click", async () => {
     resultsEl.textContent = `Error: ${e.message}`;
   } finally {
     btnAnalyze.disabled = false;
-    progressWrap.hidden = true;
+    progressBar.hidden = true;
   }
 });
 
@@ -367,8 +365,8 @@ btnCfUpload.addEventListener("click", async () => {
   cfPlayerWrap.hidden = true;
   cfUrl.hidden = true;
   cfStatus.textContent = "Requesting upload URL...";
-  cfProgressWrap.hidden = false;
-  cfProgressBar.style.width = "0%";
+  cfProgressBar.hidden = false;
+  cfProgressBar.value = 0;
 
   log(`Cloudflare upload started: ${file.name}`);
 
@@ -392,8 +390,8 @@ btnCfUpload.addEventListener("click", async () => {
 
     log("Upload to Cloudflare complete, waiting for encoding...", "ok");
     cfStatus.textContent = "Encoding video...";
-    cfProgressBar.style.width = "100%";
-    cfProgressWrap.hidden = true;
+    cfProgressBar.value = 100;
+    cfProgressBar.hidden = true;
 
     let ready = false;
     for (let i = 0; i < 90; i++) {
@@ -449,7 +447,7 @@ btnCfUpload.addEventListener("click", async () => {
     cfStatus.textContent = `Error: ${e.message}`;
   } finally {
     btnCfUpload.disabled = false;
-    cfProgressWrap.hidden = true;
+    cfProgressBar.hidden = true;
   }
 });
 
@@ -461,7 +459,7 @@ function cfUploadWithProgress(uploadURL, file) {
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable) {
         const pct = Math.round((e.loaded / e.total) * 100);
-        cfProgressBar.style.width = `${pct}%`;
+        cfProgressBar.value = pct;
         if (pct % 20 === 0 || pct === 100) {
           log(`Cloudflare upload: ${pct}%`);
         }
@@ -496,7 +494,7 @@ function uploadWithProgress(formData) {
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable) {
         const pct = Math.round((e.loaded / e.total) * 100);
-        progressBar.style.width = `${pct}%`;
+        progressBar.value = pct;
         if (pct < 100) {
           log(`Upload progress: ${pct}%`);
         } else {
