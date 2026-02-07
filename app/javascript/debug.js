@@ -2,12 +2,16 @@
 //  Debug Page — Notifications & Web Push
 // ──────────────────────────────────────────────
 
+console.log("[Debug] Module loaded");
+
 let swRegistration = null;
 let pushSubscription = null;
 
 document.addEventListener("DOMContentLoaded", () => {
+  console.log("[Debug] DOMContentLoaded - initializing");
   checkStatus();
   bindButtons();
+  console.log("[Debug] Initialization complete");
 });
 
 // ── Status checks ─────────────────────────────
@@ -86,7 +90,13 @@ function bindButtons() {
   document.getElementById("btn-push-schedule").addEventListener("click", schedulePush);
 
   // Email
-  document.getElementById("btn-send-email").addEventListener("click", sendTestEmail);
+  const emailBtn = document.getElementById("btn-send-email");
+  if (emailBtn) {
+    emailBtn.addEventListener("click", sendTestEmail);
+    console.log("[Debug] Email button bound");
+  } else {
+    console.error("[Debug] Email button not found!");
+  }
 
   // Log
   document.getElementById("btn-clear-log").addEventListener("click", () => {
@@ -358,9 +368,11 @@ function startCountdown() {
 
 // ── Email ─────────────────────────────────────
 async function sendTestEmail() {
+  console.log("[Debug] sendTestEmail called");
   const btn = document.getElementById("btn-send-email");
   const to = document.getElementById("email-to").value.trim();
   const subject = document.getElementById("email-subject").value.trim();
+  console.log("[Debug] Email params:", { to, subject });
 
   if (!to) {
     showToast("Email Error", "Enter an email address.", "error");
