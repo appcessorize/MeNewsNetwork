@@ -30,6 +30,9 @@ module Api
         configured: Rails.configuration.x.cloudflare.account_id.present? &&
                     Rails.configuration.x.cloudflare.api_token.present?
       }
+    rescue => e
+      Rails.logger.error "[CF Config] Error: #{e.message}"
+      render json: { ok: false, error: e.message }, status: :internal_server_error
     end
   end
 end

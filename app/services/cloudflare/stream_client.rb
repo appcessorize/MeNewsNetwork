@@ -21,7 +21,7 @@ module Cloudflare
     def create_direct_upload(filename: "upload.mp4")
       body = {
         maxDurationSeconds: 60 * 20,
-        allowedOrigins: [ "localhost:3000", "localhost", "127.0.0.1:3000", "127.0.0.1" ],
+        allowedOrigins: [ "localhost:3000", "localhost", "127.0.0.1:3000", "127.0.0.1", "menews.network" ],
         requireSignedURLs: false,
         meta: { name: filename },
         expiry: (Time.now + 10.minutes).iso8601
