@@ -7,12 +7,20 @@ console.log("[Debug] Module loaded");
 let swRegistration = null;
 let pushSubscription = null;
 
-document.addEventListener("DOMContentLoaded", () => {
-  console.log("[Debug] DOMContentLoaded - initializing");
+function init() {
+  console.log("[Debug] Initializing...");
   checkStatus();
   bindButtons();
   console.log("[Debug] Initialization complete");
-});
+}
+
+// Handle both cases: DOM already loaded or still loading
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  // DOM already loaded, run immediately
+  init();
+}
 
 // ── Status checks ─────────────────────────────
 function checkStatus() {

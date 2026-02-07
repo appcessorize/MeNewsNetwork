@@ -37,6 +37,9 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
+  // Only handle same-origin requests
+  if (url.origin !== self.location.origin) return;
+
   // Skip non-GET requests
   if (request.method !== 'GET') return;
 
@@ -45,6 +48,9 @@ self.addEventListener("fetch", (event) => {
 
   // Skip auth requests
   if (url.pathname.startsWith('/auth/')) return;
+
+  // Skip chrome-extension and other special schemes
+  if (!request.url.startsWith('http')) return;
 
   // Cache-first for fonts and static assets
   if (url.pathname.startsWith('/fonts/') ||

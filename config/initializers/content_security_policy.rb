@@ -13,8 +13,8 @@ Rails.application.configure do
     policy.script_src  :self, "https://cdn.jsdelivr.net", "https://umamipod.pikapod.net"
     policy.style_src   :self, :unsafe_inline, "https://fonts.googleapis.com"
     policy.connect_src :self, :blob, "https://generativelanguage.googleapis.com", "https://api.cloudflare.com", "wss://localhost:*", "ws://localhost:*"
-    policy.media_src   :self, :blob, "https://customer-*.cloudflarestream.com"
-    policy.frame_src   :self, "https://customer-*.cloudflarestream.com"
+    policy.media_src   :self, :blob, "https://*.cloudflarestream.com"
+    policy.frame_src   :self, "https://*.cloudflarestream.com"
     policy.worker_src  :self, :blob
   end
 
