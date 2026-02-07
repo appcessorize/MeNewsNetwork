@@ -1,4 +1,4 @@
 class ApplicationMailer < ActionMailer::Base
-  default from: "Newsroom <onboarding@resend.dev>"
+  default from: "AI Journalist <aijournalist@menews.network>"
   layout "mailer"
 end

@@ -1,3 +1,19 @@
+// ── Lazy Loader Setup ───────────────────────────────────────────────────────
+import "lazy_loader";
+
+// ── Service Worker Registration ─────────────────────────────────────────────
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/service-worker.js", { scope: "/" })
+      .then((reg) => {
+        console.log("[SW] Registered:", reg.scope);
+      })
+      .catch((err) => {
+        console.log("[SW] Registration failed:", err);
+      });
+  });
+}
+
 // ── Google Login (Home page) ──────────────────────────────────────────────────
 const btnGoogleLogin = document.getElementById("btn-google-login");
 if (btnGoogleLogin) {

@@ -46,6 +46,11 @@ Rails.application.routes.draw do
 
   get "up" => "rails/health#show", as: :rails_health_check
 
+  # Webhooks
+  namespace :webhooks do
+    post "resend/inbound", to: "resend#inbound"
+  end
+
   namespace :api, defaults: { format: :json } do
     get "health",        to: "health#show"
     get "test-gemini",   to: "gemini_test#show"

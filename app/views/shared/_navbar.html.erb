@@ -1,0 +1,156 @@
+<%#
+  Shared Navbar Component
+
+  Usage: <%= render "shared/navbar", title: "NEWSROOM", badge: "Today", badge_class: "badge-primary", current: "newsroom" %>
+
+  Parameters:
+    - title: The page title (required)
+    - badge: Optional badge text
+    - badge_class: Badge CSS class (default: "badge-primary")
+    - current: Current page identifier for active state (newsroom, stories, friends, studio, settings, debug)
+    - show_back: Show back button instead of menu items (for sub-pages)
+    - back_path: Path for back button (default: /newsroom)
+%>
+
+<% badge ||= nil %>
+<% badge_class ||= "badge-primary" %>
+<% current ||= nil %>
+<% show_back ||= false %>
+<% back_path ||= "/newsroom" %>
+
+<header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4 min-h-0">
+  <!-- Left: Title -->
+  <div class="flex-1 flex items-center gap-2 min-w-0 overflow-hidden">
+    <% if show_back %>
+      <a href="<%= back_path %>" class="btn btn-ghost btn-sm btn-square shrink-0">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+      </a>
+    <% end %>
+    <h1 class="truncate" style="font-weight: 900; font-style: italic; font-size: 1.5rem;"><%= title %></h1>
+    <% if badge.present? %>
+      <span class="badge <%= badge_class %> shrink-0 hidden sm:inline-flex"><%= badge %></span>
+    <% end %>
+  </div>
+
+  <!-- Right: Desktop nav + Avatar + Mobile menu button -->
+  <div class="flex items-center gap-1 shrink-0">
+    <!-- Desktop Navigation (hidden on mobile) -->
+    <nav class="hidden md:flex items-center gap-1">
+      <a href="/newsroom" class="btn btn-ghost btn-sm <%= 'btn-active' if current == 'newsroom' %>">Newsroom</a>
+      <a href="/stories" class="btn btn-ghost btn-sm <%= 'btn-active' if current == 'stories' %>">Stories</a>
+      <a href="/friends" class="btn btn-ghost btn-sm <%= 'btn-active' if current == 'friends' %>">Friends</a>
+      <a href="/studio" class="btn btn-ghost btn-sm <%= 'btn-active' if current == 'studio' %>">Studio</a>
+      <% if current_user&.email == ENV.fetch("ADMIN_EMAIL", nil) %>
+        <a href="/debug" class="btn btn-ghost btn-sm <%= 'btn-active' if current == 'debug' %>">Debug</a>
+      <% end %>
+    </nav>
+
+    <!-- Avatar (links to settings) - hidden on small mobile -->
+    <% if current_user %>
+      <a href="/settings" class="btn btn-ghost btn-circle hidden sm:flex">
+        <%= user_avatar(current_user, size: "w-8") %>
+      </a>
+    <% end %>
+
+    <!-- Mobile Menu Button (visible on mobile only) -->
+    <button type="button" class="btn btn-ghost btn-square md:hidden" onclick="document.getElementById('mobile-menu').classList.remove('hidden')">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+    </button>
+  </div>
+</header>
+
+<!-- Mobile Full-Screen Menu -->
+<div id="mobile-menu" class="fixed inset-0 z-50 bg-base-100 hidden md:hidden">
+  <div class="flex flex-col h-full">
+    <!-- Menu Header -->
+    <div class="flex items-center justify-between p-4 border-b border-base-300">
+      <h2 class="text-lg font-bold">Menu</h2>
+      <button type="button" class="btn btn-ghost btn-square" onclick="document.getElementById('mobile-menu').classList.add('hidden')">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- User Info -->
+    <% if current_user %>
+      <div class="flex items-center gap-3 p-4 border-b border-base-300 bg-base-200">
+        <%= user_avatar(current_user, size: "w-12") %>
+        <div>
+          <p class="font-semibold"><%= current_user.name %></p>
+          <p class="text-sm text-base-content/60"><%= current_user.email %></p>
+        </div>
+      </div>
+    <% end %>
+
+    <!-- Menu Items -->
+    <ul class="menu menu-lg flex-1 p-4 gap-1">
+      <li>
+        <a href="/newsroom" class="<%= 'menu-active' if current == 'newsroom' %>" onclick="document.getElementById('mobile-menu').classList.add('hidden')">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
+          </svg>
+          Newsroom
+        </a>
+      </li>
+      <li>
+        <a href="/stories" class="<%= 'menu-active' if current == 'stories' %>" onclick="document.getElementById('mobile-menu').classList.add('hidden')">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+          </svg>
+          Stories
+        </a>
+      </li>
+      <li>
+        <a href="/friends" class="<%= 'menu-active' if current == 'friends' %>" onclick="document.getElementById('mobile-menu').classList.add('hidden')">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
+          Friends
+        </a>
+      </li>
+      <li>
+        <a href="/studio" class="<%= 'menu-active' if current == 'studio' %>" onclick="document.getElementById('mobile-menu').classList.add('hidden')">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          Studio
+        </a>
+      </li>
+      <% if current_user&.email == ENV.fetch("ADMIN_EMAIL", nil) %>
+        <li>
+          <a href="/debug" class="<%= 'menu-active' if current == 'debug' %>" onclick="document.getElementById('mobile-menu').classList.add('hidden')">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Debug
+          </a>
+        </li>
+      <% end %>
+
+      <div class="divider my-2"></div>
+
+      <li>
+        <a href="/settings" class="<%= 'menu-active' if current == 'settings' %>" onclick="document.getElementById('mobile-menu').classList.add('hidden')">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Settings
+        </a>
+      </li>
+    </ul>
+
+    <!-- Logout at bottom -->
+    <% if current_user %>
+      <div class="p-4 border-t border-base-300">
+        <%= button_to "Sign Out", auth_logout_path, method: :delete, class: "btn btn-outline btn-error w-full" %>
+      </div>
+    <% end %>
+  </div>
+</div>

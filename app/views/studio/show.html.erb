@@ -1,15 +1,5 @@
-<div class="max-w-4xl mx-auto px-6 py-8" style="view-transition-name: page-content;">
-  <!-- Header -->
-  <header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4">
-    <div class="flex-1">
-      <h1 style="font-weight: 900; font-style: italic; font-size: 1.75rem;">STUDIO</h1>
-      <span class="badge badge-warning ml-3">Coming Soon</span>
-    </div>
-    <div class="flex items-center gap-3">
-      <a href="/stories" class="btn btn-ghost btn-sm">Stories</a>
-      <a href="/newsroom" class="btn btn-ghost btn-sm">Newsroom</a>
-    </div>
-  </header>
+<div class="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8" style="view-transition-name: page-content;">
+  <%= render "shared/navbar", title: "STUDIO", badge: "Coming Soon", badge_class: "badge-warning", current: "studio" %>
 
   <!-- Placeholder -->
   <div class="card bg-base-100 shadow-sm mb-6">

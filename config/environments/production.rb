@@ -57,7 +57,7 @@ Rails.application.configure do
 
   # Email via Resend
   config.action_mailer.delivery_method = :resend
-  config.action_mailer.default_url_options = { host: "newsroom.test" }
+  config.action_mailer.default_url_options = { host: "menews.network" }
 
   # Store files in the database via active_storage_db
   config.active_storage.service = :db

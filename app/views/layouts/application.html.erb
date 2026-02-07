@@ -9,16 +9,26 @@
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+    <%# DNS prefetch for external resources %>
+    <link rel="dns-prefetch" href="https://umamipod.pikapod.net">
 
+    <%# Preload critical font (most used weight) %>
+    <link rel="preload" href="/fonts/inter-400.woff2" as="font" type="font/woff2" crossorigin>
+
+    <%# Mobile theme color %>
+    <meta name="theme-color" content="#f5f5f4">
+
+    <%# Self-hosted Inter font %>
+    <%= stylesheet_link_tag "fonts", "data-turbo-track": "reload" %>
     <%= stylesheet_link_tag :app %>
     <%= javascript_importmap_tags %>
     <%= content_for(:head) %>
+
+    <%# Umami Analytics %>
+    <script defer src="https://umamipod.pikapod.net/script.js" data-website-id="639a34cb-cba3-48db-9d9b-245b98682078"></script>
   </head>
 
-  <body class="bg-base-200 min-h-screen" style="font-family: 'Inter', sans-serif;">
+  <body class="bg-base-200 min-h-screen overflow-x-hidden" style="font-family: 'Inter', system-ui, -apple-system, sans-serif;">
     <% if flash[:alert].present? %>
       <div role="alert" class="alert alert-error max-w-2xl mx-auto mt-4">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">

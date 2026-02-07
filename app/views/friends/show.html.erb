@@ -1,19 +1,9 @@
 <% content_for :head do %>
-  <%= javascript_import_module_tag "friends" %>
+  <%= lazy_javascript_module_tag "friends" %>
 <% end %>
 
-<div class="max-w-2xl mx-auto px-6 py-8" style="view-transition-name: page-content;">
-  <!-- Header -->
-  <header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4">
-    <div class="flex-1 flex items-center gap-4">
-      <a href="/newsroom" class="btn btn-ghost btn-sm">&larr; Back</a>
-      <h1 style="font-weight: 900; font-style: italic; font-size: 1.75rem;">FRIENDS</h1>
-    </div>
-    <div class="flex items-center gap-3">
-      <%= user_avatar(current_user) %>
-      <span class="text-sm"><%= current_user&.name %></span>
-    </div>
-  </header>
+<div class="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8" style="view-transition-name: page-content;">
+  <%= render "shared/navbar", title: "FRIENDS", current: "friends" %>
 
   <% if flash[:notice].present? %>
     <div role="alert" class="alert alert-success mb-6">

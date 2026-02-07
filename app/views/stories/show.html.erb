@@ -1,19 +1,15 @@
-<div class="max-w-4xl mx-auto px-6 py-8" style="view-transition-name: page-content;">
+<div class="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8" style="view-transition-name: page-content;">
   <!-- Header -->
   <header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4">
-    <div class="flex-1 gap-3">
-      <a href="<%= stories_path %>" class="btn btn-ghost btn-sm">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-          <path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd" />
+    <div class="flex-1 flex items-center gap-3 min-w-0">
+      <a href="<%= stories_path %>" class="btn btn-ghost btn-sm btn-square shrink-0">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
         </svg>
-        Back
       </a>
-      <h1 style="font-weight: 900; font-style: italic; font-size: 1.25rem;">STORY</h1>
+      <h1 class="truncate" style="font-weight: 900; font-style: italic; font-size: 1.25rem;">STORY</h1>
     </div>
-    <div class="flex items-center gap-3">
-      <% if @story.broadcast_at.present? %>
-        <span class="badge badge-primary badge-sm">Broadcasts <%= @story.broadcast_at.strftime("%I:%M %p") %></span>
-      <% end %>
+    <div class="flex items-center gap-2 shrink-0">
       <% if @story.expired? %>
         <span class="badge badge-error badge-sm">Expired</span>
       <% else %>

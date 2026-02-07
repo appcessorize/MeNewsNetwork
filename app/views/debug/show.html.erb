@@ -1,25 +1,18 @@
 <% content_for :head do %>
-  <%= javascript_import_module_tag "debug" %>
+  <%= lazy_javascript_module_tag "debug" %>
 <% end %>
 
 <!-- Toast container -->
 <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 items-end"></div>
 
-<div class="max-w-4xl mx-auto px-6 py-8" style="view-transition-name: page-content;"
+<div class="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8" style="view-transition-name: page-content;"
      data-vapid-public="<%= @vapid_public_key %>">
-  <!-- Header -->
-  <header class="navbar bg-base-100 rounded-box shadow-sm mb-8 px-4">
-    <div class="flex-1">
-      <h1 style="font-weight: 900; font-style: italic; font-size: 1.75rem;">DEBUG</h1>
-      <span class="badge badge-error ml-3">Dev Only</span>
-    </div>
-    <div class="flex items-center gap-3">
-      <a href="/debug/mock_news" class="btn btn-warning btn-sm">Mock News</a>
-      <a href="/newsroom" class="btn btn-ghost btn-sm">Newsroom</a>
-      <a href="/stories" class="btn btn-ghost btn-sm">Stories</a>
-      <a href="/studio" class="btn btn-ghost btn-sm">Studio</a>
-    </div>
-  </header>
+  <%= render "shared/navbar", title: "DEBUG", badge: "Dev Only", badge_class: "badge-error", current: "debug" %>
+
+  <!-- Debug-specific links -->
+  <div class="flex flex-wrap gap-2 mb-6 -mt-4">
+    <a href="/debug/mock_news" class="btn btn-warning btn-sm">Mock News</a>
+  </div>
 
   <!-- Status Overview -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
