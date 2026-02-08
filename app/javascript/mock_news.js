@@ -662,11 +662,47 @@ function stopTTS() {
 }
 
 // ── Poster Capture ────────────────────────────
+// Derive Cloudflare Stream thumbnail URL from HLS manifest URL
+// e.g. https://customer-xxx.cloudflarestream.com/{uid}/manifest/video.m3u8
+//   → https://customer-xxx.cloudflarestream.com/{uid}/thumbnails/thumbnail.jpg?time=1s&height=352&width=352&fit=crop
+function cfThumbnailUrl(videoUrl) {
+  if (!videoUrl) return null;
+  const match = videoUrl.match(/^(https:\/\/customer-[^/]+\.cloudflarestream\.com\/[^/]+)\//);
+  if (!match) return null;
+  return match[1] + "/thumbnails/thumbnail.jpg?time=1s&height=352&width=352&fit=crop";
+}
+
 function prefetchPoster(videoUrl) {
   if (!videoUrl) return Promise.resolve();
   if (preloadCache.posters.has(videoUrl)) return Promise.resolve();
-  preloadCache.posters.set(videoUrl, { dataUrl: null, status: "loading" });
+  preloadCache.posters.set(videoUrl, { imgUrl: null, status: "loading" });
 
+  const thumbUrl = cfThumbnailUrl(videoUrl);
+
+  if (thumbUrl) {
+    // Cloudflare Stream: preload native thumbnail
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      const timeout = setTimeout(() => {
+        preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
+        resolve();
+      }, 8000);
+      img.onload = () => {
+        clearTimeout(timeout);
+        preloadCache.posters.set(videoUrl, { imgUrl: thumbUrl, status: "ready" });
+        resolve();
+      };
+      img.onerror = () => {
+        clearTimeout(timeout);
+        preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
+        resolve();
+      };
+      img.src = thumbUrl;
+    });
+  }
+
+  // Non-Cloudflare: use temp video + canvas (same-origin only)
   return new Promise((resolve) => {
     const tempCanvas = document.createElement("canvas");
     tempCanvas.width = 352;
@@ -680,7 +716,7 @@ function prefetchPoster(videoUrl) {
 
     const cleanup = () => { tempVid.src = ""; tempVid.remove(); resolve(); };
     const timeout = setTimeout(() => {
-      preloadCache.posters.set(videoUrl, { dataUrl: null, status: "failed" });
+      preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
       cleanup();
     }, 8000);
 
@@ -694,14 +730,18 @@ function prefetchPoster(videoUrl) {
       const size = Math.min(vw, vh);
       const sx = (vw - size) / 2, sy = (vh - size) / 2;
       tctx.drawImage(tempVid, sx, sy, size, size, 0, 0, tempCanvas.width, tempCanvas.height);
-      const dataUrl = tempCanvas.toDataURL("image/jpeg", 0.7);
-      preloadCache.posters.set(videoUrl, { dataUrl, status: "ready" });
+      try {
+        const dataUrl = tempCanvas.toDataURL("image/jpeg", 0.7);
+        preloadCache.posters.set(videoUrl, { imgUrl: dataUrl, status: "ready" });
+      } catch {
+        preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
+      }
       cleanup();
     }, { once: true });
 
     tempVid.addEventListener("error", () => {
       clearTimeout(timeout);
-      preloadCache.posters.set(videoUrl, { dataUrl: null, status: "failed" });
+      preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
       cleanup();
     }, { once: true });
 
@@ -718,15 +758,31 @@ function capturePoster(videoUrl) {
 
     // Check preload cache first
     const cached = preloadCache.posters.get(videoUrl);
-    if (cached && cached.status === "ready" && cached.dataUrl) {
+    if (cached && cached.status === "ready" && cached.imgUrl) {
       const img = new Image();
+      img.crossOrigin = "anonymous";
       img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); resolve(); };
       img.onerror = () => resolve();
-      img.src = cached.dataUrl;
+      img.src = cached.imgUrl;
       return;
     }
 
-    // Fallback: dark placeholder + live capture
+    // Try Cloudflare thumbnail directly (even without cache)
+    const thumbUrl = cfThumbnailUrl(videoUrl);
+    if (thumbUrl) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); resolve(); };
+      img.onerror = () => {
+        ctx.fillStyle = "#1a1a2e";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        resolve();
+      };
+      img.src = thumbUrl;
+      return;
+    }
+
+    // Fallback: dark placeholder + live capture (same-origin videos only)
     ctx.fillStyle = "#1a1a2e";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
