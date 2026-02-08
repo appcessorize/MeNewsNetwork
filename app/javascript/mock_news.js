@@ -995,7 +995,6 @@ function buildPlaybackQueue(master) {
       queue.push({
         type: "video",
         src: story.videoUrl,
-        headline: story.studioHeadline || story.storyTitle,
         label: "Video: " + (story.storyTitle || "Story " + story.storyNumber)
       });
     }
@@ -1051,6 +1050,7 @@ async function playBulletin() {
   log("Preparing bulletin (preloading TTS, posters, first video)...");
   await prepareBulletin();
   log("Preparation complete — starting playback.");
+  hidePreparationScreen();
 
   playNextSegment();
 }
@@ -1095,16 +1095,10 @@ function playBumperSegment(segment) {
 
   hideTicker();
 
-  // Show studio overlay as a visual hold frame (hides black video element)
-  overlay.style.display = "flex";
-  document.getElementById("studio-story-content").style.display = "none";
-  document.getElementById("studio-weather-content").style.display = "none";
-
   video.muted = true;
 
-  // Ready gate: only hide overlays and show video when bumper can play
+  // Ready gate: only hide overlay and show video when bumper can play
   const showVideoWhenReady = () => {
-    hidePreparationScreen();
     overlay.style.display = "none";
     video.style.display = "block";
   };
@@ -1198,9 +1192,6 @@ function playVideoSegment(segment) {
 
   clearSubtitles();
   stopTTS();
-
-  // Show ticker during video playback
-  showTicker(segment.headline);
 
   // Silence bg music during user video
   setBgMusicVolume(0, 500);
@@ -1308,8 +1299,6 @@ async function showStudioSegment(segment) {
   const storyContent = document.getElementById("studio-story-content");
   const weatherContent = document.getElementById("studio-weather-content");
 
-  hidePreparationScreen();
-
   video.pause();
   video.removeAttribute("src");
   video.style.display = "none";
@@ -1325,6 +1314,7 @@ async function showStudioSegment(segment) {
   if (segment.mode === "story") {
     storyContent.style.display = "flex";
     weatherContent.style.display = "none";
+    showTicker(segment.headline);
 
     document.getElementById("studio-emoji").textContent = segment.emoji || "";
     document.getElementById("studio-headline").textContent = segment.headline || "";
@@ -1343,6 +1333,7 @@ async function showStudioSegment(segment) {
   } else if (segment.mode === "weather") {
     storyContent.style.display = "none";
     weatherContent.style.display = "flex";
+    showTicker("Weather Report");
     renderWeatherDisplay(segment.weather);
   }
 
