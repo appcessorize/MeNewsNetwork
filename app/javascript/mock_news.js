@@ -1,6 +1,7 @@
 // ──────────────────────────────────────────────
 //  Mock News Report — Debug Flow
 // ──────────────────────────────────────────────
+import Hls from "hls.js";
 
 const LOG_START = performance.now();
 
@@ -45,6 +46,7 @@ const QUESTIONS = [
 function init() {
   bindFileInput();
   bindButtons();
+  initBuffers();
   restoreSavedVideos();
   log("Mock News debug page ready.");
 }
@@ -621,103 +623,114 @@ function setBgMusicVolume(targetVol, fadeDuration = 500) {
   requestAnimationFrame(fade);
 }
 
-// ── CF Stream Player (iframe + SDK) ───────────
-let cfPlayer = null;
-let cfPrewarm = null; // { src, player, ready }
+// ── Double-buffer HLS video player ────────────
+const buffers = {
+  a: { el: null, hls: null, src: null, ready: false },
+  b: { el: null, hls: null, src: null, ready: false },
+};
+let front = null; // currently visible/playing buffer
+let back = null;  // hidden buffer for preloading
 
-function isCfStreamUrl(url) {
-  return url && url.includes("cloudflarestream.com/") && url.includes("/iframe");
+function initBuffers() {
+  buffers.a.el = document.getElementById("video-a");
+  buffers.b.el = document.getElementById("video-b");
+  front = buffers.a;
+  back = buffers.b;
 }
 
-function discardPrewarm() {
-  if (cfPrewarm) {
-    if (cfPrewarm.player) try { cfPrewarm.player.pause(); } catch {}
-    cfPrewarm = null;
+function isHlsUrl(url) {
+  return url && (url.endsWith(".m3u8") || url.includes("/manifest/video.m3u8"));
+}
+
+function attachSource(buf, src) {
+  detachSource(buf);
+  buf.src = src;
+  buf.ready = false;
+
+  if (isHlsUrl(src)) {
+    // Prefer native HLS (Safari/iOS) — more reliable than hls.js on Apple
+    if (buf.el.canPlayType("application/vnd.apple.mpegurl")) {
+      buf.el.src = src;
+    } else if (Hls.isSupported()) {
+      const hls = new Hls({ enableWorker: false });
+      buf.hls = hls;
+      hls.attachMedia(buf.el);
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(src));
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        log(`[HLS] error: ${data.type} / ${data.details}`);
+        if (data.fatal) {
+          log(`[HLS] fatal — attempting recovery`);
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+          else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+          else detachSource(buf);
+        }
+      });
+    }
+  } else {
+    // Local MP4
+    buf.el.src = src;
   }
 }
 
-function destroyCfPlayer() {
-  if (cfPlayer) {
-    try { cfPlayer.pause(); } catch {}
-    cfPlayer = null;
+function detachSource(buf) {
+  if (buf.hls) {
+    buf.hls.destroy();
+    buf.hls = null;
   }
-  discardPrewarm();
-  const iframe = document.getElementById("cf-stream-player");
-  if (iframe) iframe.style.display = "none";
+  buf.el.removeAttribute("src");
+  buf.el.load(); // reset the element
+  buf.src = null;
+  buf.ready = false;
 }
 
-function preloadNextCfVideo(src) {
-  // Skip if already preloading this URL
-  if (cfPrewarm && cfPrewarm.src === src) {
-    log(`[CF-Prewarm] Already preloading: ${src.substring(0, 60)}...`);
+function showBuffer(buf) { buf.el.style.visibility = "visible"; }
+function hideBuffer(buf) { buf.el.style.visibility = "hidden"; }
+
+function preloadNext(src) {
+  if (back.src === src) {
+    log(`[Player] Already preloading: ${src.substring(0, 60)}...`);
     return;
   }
 
-  discardPrewarm();
+  log(`[Player] Preloading into back buffer: ${src.substring(0, 60)}...`);
+  attachSource(back, src);
+  back.el.muted = true;
 
-  const iframe = document.getElementById("cf-stream-player");
-  if (!iframe) return;
+  function checkReady() {
+    back.ready = true;
+    log("[Player] Back buffer READY");
+  }
 
-  const prewarm = { src, player: null, ready: false };
-  cfPrewarm = prewarm;
-
-  // Show iframe but it's hidden behind z-10 studio overlay
-  iframe.style.display = "block";
-  iframe.src = src;
-  log(`[CF-Prewarm] Loading iframe: ${src.substring(0, 60)}...`);
-
-  iframe.addEventListener("load", () => {
-    // Guard against stale prewarm
-    if (cfPrewarm !== prewarm) {
-      log("[CF-Prewarm] Stale iframe load — discarding");
-      return;
-    }
-
-    log("[CF-Prewarm] iframe loaded, initializing SDK");
-    const player = Stream(iframe);
-    prewarm.player = player;
-    player.muted = true;
-
-    // Play muted to force buffering
-    player.play().catch(err => log(`[CF-Prewarm] play() error: ${err?.message || err}`));
-
-    // On first ready-like event, pause and mark ready
-    const readyEvents = ["canplay", "loadeddata", "playing", "timeupdate"];
-    let settled = false;
-
-    readyEvents.forEach(evt => {
-      player.addEventListener(evt, function handler() {
-        if (settled || cfPrewarm !== prewarm) return;
-        settled = true;
-        try { player.pause(); } catch {}
-        prewarm.ready = true;
-        log(`[CF-Prewarm] READY via ${evt}`);
-        // Clean up remaining listeners
-        readyEvents.forEach(e => {
-          try { player.removeEventListener(e, handler); } catch {}
-        });
-      });
+  // For HLS via hls.js: FRAG_BUFFERED fires as segments download
+  if (back.hls) {
+    back.hls.on(Hls.Events.FRAG_BUFFERED, function h() {
+      if (back.ready) return;
+      const b = back.el.buffered;
+      if (b.length > 0 && b.end(0) >= 1.5) {
+        back.hls.off(Hls.Events.FRAG_BUFFERED, h);
+        checkReady();
+      }
     });
-  }, { once: true });
+  }
+
+  // For native HLS (Safari) and MP4: use canplay
+  back.el.addEventListener("canplay", function h() {
+    back.el.removeEventListener("canplay", h);
+    checkReady();
+  });
 }
 
-function playCfVideo(src, muted, onReady, onEnded) {
-  const video = document.getElementById("bulletin-video");
-  const iframe = document.getElementById("cf-stream-player");
-
-  video.pause();
-  video.style.display = "none";
-  iframe.style.display = "block";
-
+function playVideo(src, muted, onReady, onEnded) {
   let readyFired = false;
   let endedFired = false;
   let timeoutId = null;
+  let retried = false;
 
   function fireReady(via) {
     if (readyFired) return;
     readyFired = true;
     if (timeoutId) clearTimeout(timeoutId);
-    log(`[CF] READY via: ${via}`);
+    log(`[Player] READY via: ${via}`);
     onReady();
   }
 
@@ -725,129 +738,111 @@ function playCfVideo(src, muted, onReady, onEnded) {
     if (endedFired) return;
     endedFired = true;
     if (timeoutId) clearTimeout(timeoutId);
-    log(`[CF] ENDED via: ${via}`);
+    log(`[Player] ENDED via: ${via}`);
     onEnded();
   }
 
-  // ── Fast path: consume prewarmed player ──
-  if (cfPrewarm && cfPrewarm.src === src && cfPrewarm.player) {
-    log("[CF] Fast path — consuming prewarm");
-    const pw = cfPrewarm;
-    cfPrewarm = null;
-    cfPlayer = pw.player;
-    cfPlayer.muted = muted;
-    cfPlayer.currentTime = 0;
+  // ── Fast path: back buffer already has this video loaded ──
+  if (back.src === src && back.ready) {
+    log("[Player] Fast path — swapping buffers");
+    try { front.el.pause(); } catch {}
+    hideBuffer(front);
 
-    // Attach ended/error handlers
-    cfPlayer.addEventListener("ended", function handler() {
-      try { cfPlayer.removeEventListener("ended", handler); } catch {}
+    [front, back] = [back, front];
+
+    showBuffer(front);
+    front.el.muted = muted;
+    front.el.currentTime = 0;
+
+    front.el.addEventListener("ended", function h() {
+      front.el.removeEventListener("ended", h);
       fireEnded("ended");
     });
-    cfPlayer.addEventListener("error", function handler(e) {
-      try { cfPlayer.removeEventListener("error", handler); } catch {}
-      log(`[CF] ERROR: ${e?.message || "unknown"}`);
+    front.el.addEventListener("error", function h() {
+      front.el.removeEventListener("error", h);
       fireEnded("error");
     });
 
-    // Guard debug listeners: only log if cfPlayer === thisPlayer
-    const thisPlayer = cfPlayer;
-    ["play", "pause", "waiting", "stalled", "suspend", "seeked"].forEach(evt => {
-      thisPlayer.addEventListener(evt, () => {
-        if (cfPlayer === thisPlayer) log(`[CF] event: ${evt}`);
-      });
-    });
+    front.el.play()
+      .then(() => fireReady("swap-play"))
+      .catch(() => fireReady("swap-play-fallback"));
 
-    cfPlayer.play()
-      .then(() => fireReady("prewarm-play"))
-      .catch(err => {
-        log(`[CF] prewarm play() error: ${err?.message || err}`);
-        fireReady("prewarm-play-fallback");
-      });
-
-    // 5s safety timeout (should be near-instant)
     timeoutId = setTimeout(() => {
-      log("[CF] TIMEOUT (5s fast-path) — force-firing ready+ended");
+      log("[Player] TIMEOUT (5s fast-path) — force-firing ready");
       fireReady("timeout");
-      setTimeout(() => fireEnded("timeout"), 500);
     }, 5000);
-
     return;
   }
 
-  // ── Slow path: no prewarm — load from scratch ──
-  discardPrewarm(); // clear mismatched prewarm
+  // ── Slow path: load from scratch ──
+  log(`[Player] Slow path — loading: ${src.substring(0, 60)}...`);
 
-  // Set src directly — append cache-buster if reloading same URL (e.g. closing bumper)
-  const bustCache = iframe.src && iframe.src.includes(src.split("?")[0]);
-  iframe.src = bustCache ? src + "&_cb=" + Date.now() : src;
-  log(`[CF] Slow path — Loading iframe: ${iframe.src.substring(0, 80)}...`);
+  try { front.el.pause(); } catch {}
+  hideBuffer(front);
 
-  iframe.addEventListener("load", () => {
-    log("[CF] iframe loaded, initializing SDK");
-    const player = Stream(iframe);
-    const thisPlayer = player;
-    cfPlayer = player;
-    player.muted = muted;
+  [front, back] = [back, front];
+  detachSource(front);
 
-    // FIX: Start timeout AFTER iframe load (not before)
-    timeoutId = setTimeout(() => {
-      log("[CF] TIMEOUT (15s) — force-firing ready+ended");
-      fireReady("timeout");
-      setTimeout(() => fireEnded("timeout"), 500);
-    }, 15000);
+  attachSource(front, src);
+  showBuffer(front);
+  front.el.muted = muted;
 
-    const readyEvents = ["canplay", "loadeddata", "playing"];
-    readyEvents.forEach(evt => {
-      player.addEventListener(evt, function handler() {
-        try { player.removeEventListener(evt, handler); } catch {}
-        fireReady(evt);
+  // 15s timeout: retry once, then skip
+  timeoutId = setTimeout(() => {
+    if (!retried) {
+      retried = true;
+      log("[Player] TIMEOUT (15s) — retrying with fresh HLS instance");
+      detachSource(front);
+      attachSource(front, src);
+      front.el.muted = muted;
+
+      ["canplay", "loadeddata", "playing"].forEach(evt => {
+        front.el.addEventListener(evt, function h() {
+          front.el.removeEventListener(evt, h);
+          fireReady(evt);
+        });
       });
-    });
-
-    let firstTimeUpdate = true;
-    player.addEventListener("timeupdate", function handler() {
-      if (firstTimeUpdate) {
-        firstTimeUpdate = false;
-        fireReady("timeupdate");
-      }
-    });
-
-    player.addEventListener("ended", function handler() {
-      try { player.removeEventListener("ended", handler); } catch {}
-      fireEnded("ended");
-    });
-
-    player.addEventListener("error", function handler(e) {
-      try { player.removeEventListener("error", handler); } catch {}
-      log(`[CF] ERROR: ${e?.message || "unknown"}`);
-      fireEnded("error");
-    });
-
-    // Guard debug listeners: only log if cfPlayer === thisPlayer
-    ["play", "pause", "waiting", "stalled", "suspend", "seeked"].forEach(evt => {
-      player.addEventListener(evt, () => {
-        if (cfPlayer === thisPlayer) log(`[CF] event: ${evt}`);
+      front.el.addEventListener("ended", function h() {
+        front.el.removeEventListener("ended", h);
+        fireEnded("ended");
       });
-    });
 
-    player.play().catch(err => log(`[CF] play() error: ${err?.message || err}`));
-  }, { once: true });
+      front.el.play().catch(err => log(`[Player] retry play() error: ${err?.message || err}`));
+
+      timeoutId = setTimeout(() => {
+        log("[Player] TIMEOUT (25s total) — skipping segment");
+        fireReady("timeout-skip");
+        setTimeout(() => fireEnded("timeout-skip"), 500);
+      }, 10000);
+    }
+  }, 15000);
+
+  ["canplay", "loadeddata", "playing"].forEach(evt => {
+    front.el.addEventListener(evt, function h() {
+      front.el.removeEventListener(evt, h);
+      fireReady(evt);
+    });
+  });
+
+  front.el.addEventListener("ended", function h() {
+    front.el.removeEventListener("ended", h);
+    fireEnded("ended");
+  });
+  front.el.addEventListener("error", function h(e) {
+    front.el.removeEventListener("error", h);
+    log(`[Player] ERROR: ${e?.message || "unknown"}`);
+    fireEnded("error");
+  });
+
+  front.el.play().catch(err => log(`[Player] play() error: ${err?.message || err}`));
 }
 
-function playLocalVideo(src, muted, onReady, onEnded) {
-  const video = document.getElementById("bulletin-video");
-  destroyCfPlayer();
-  video.style.display = "block";
-  video.muted = muted;
-  video.onended = onEnded;
-  video.onerror = onEnded;
-  video.src = src;
-  video.oncanplay = () => {
-    video.oncanplay = null;
-    onReady();
-    video.play().catch(onEnded);
-  };
-  video.load();
+function destroyPlayer() {
+  try { front.el.pause(); } catch {}
+  hideBuffer(front);
+  hideBuffer(back);
+  detachSource(front);
+  detachSource(back);
 }
 
 // ── TTS Audio (pre-generated, play from URL) ──
@@ -1153,9 +1148,7 @@ async function preloadBulletin(master) {
   }
 
   // 3. Kick off bumper prewarm (non-blocking)
-  if (master.assets?.bumperUrl && isCfStreamUrl(master.assets.bumperUrl)) {
-    preloadNextCfVideo(master.assets.bumperUrl);
-  }
+  preloadNext(master.assets.bumperUrl);
 
   prepStatus.textContent = "Ready!";
   prepBar.style.width = "100%";
@@ -1228,11 +1221,7 @@ function playBumperSegment(segment) {
   const onReady = () => { overlay.style.display = "none"; };
   const advance = () => { playerIndex++; playNextSegment(); };
 
-  if (isCfStreamUrl(segment.src)) {
-    playCfVideo(segment.src, true, onReady, advance);
-  } else {
-    playLocalVideo(segment.src, true, onReady, advance);
-  }
+  playVideo(segment.src, true, onReady, advance);
 }
 
 // ── Video Segment (bg music off) ──────────────
@@ -1247,22 +1236,15 @@ function playVideoSegment(segment) {
   const onReady = () => { overlay.style.display = "none"; };
   const advance = () => { playerIndex++; playNextSegment(); };
 
-  if (isCfStreamUrl(segment.src)) {
-    playCfVideo(segment.src, false, onReady, advance);
-  } else {
-    playLocalVideo(segment.src, false, onReady, advance);
-  }
+  playVideo(segment.src, false, onReady, advance);
 }
 
 // ── Studio Segment (TTS + bg music low) ───────
 async function showStudioSegment(segment) {
-  const video = document.getElementById("bulletin-video");
   const overlay = document.getElementById("studio-overlay");
 
   hideTicker();
-  video.pause();
-  video.style.display = "none";
-  destroyCfPlayer();
+  destroyPlayer();
   clearSubtitles();
   setBgMusicVolume(0.18, 800);
 
@@ -1290,11 +1272,10 @@ async function showStudioSegment(segment) {
     renderWeatherDisplay(segment.weather);
   }
 
-  // Peek ahead: preload next CF video while TTS plays
+  // Peek ahead: preload next video while TTS plays
   const nextSeg = playerQueue[playerIndex + 1];
-  if (nextSeg && (nextSeg.type === "video" || nextSeg.type === "bumper")
-      && isCfStreamUrl(nextSeg.src)) {
-    preloadNextCfVideo(nextSeg.src);
+  if (nextSeg && (nextSeg.type === "video" || nextSeg.type === "bumper")) {
+    preloadNext(nextSeg.src);
   }
 
   // Play browser TTS — show full text as subtitle while speaking
@@ -1321,14 +1302,11 @@ async function showStudioSegment(segment) {
 
 // ── Pause / Resume ────────────────────────────
 function togglePause() {
-  const video = document.getElementById("bulletin-video");
   const btn = document.getElementById("btn-player-pause");
   playerPaused = !playerPaused;
 
   if (playerPaused) {
-    video.pause();
-    if (cfPlayer) try { cfPlayer.pause(); } catch {}
-    if (cfPrewarm?.player) try { cfPrewarm.player.pause(); } catch {}
+    try { front.el.pause(); } catch {}
     if (bgMusic && !bgMusic.paused) bgMusic.pause();
     stopTTS();
     window.speechSynthesis.cancel();
@@ -1340,8 +1318,7 @@ function togglePause() {
     if (bgMusic) bgMusic.play().catch(() => {});
     const segment = playerQueue[playerIndex];
     if (segment?.type === "video" || segment?.type === "bumper") {
-      if (cfPlayer) try { cfPlayer.play(); } catch {}
-      else if (video.src) video.play();
+      try { front.el.play(); } catch {}
     } else {
       playerIndex++;
       playNextSegment();
@@ -1356,11 +1333,9 @@ function skipToNextSegment() {
   if (!playerQueue.length) return;
   log(`[Skip] Skipping segment ${playerIndex + 1}`);
 
-  const video = document.getElementById("bulletin-video");
-  video.pause();
   stopTTS();
   clearSubtitles();
-  destroyCfPlayer();
+  destroyPlayer();
 
   playerIndex++;
   if (playerIndex < playerQueue.length) {
@@ -1373,12 +1348,7 @@ function skipToNextSegment() {
 
 // ── Stop Player ───────────────────────────────
 function stopPlayer() {
-  const video = document.getElementById("bulletin-video");
-  video.pause();
-  video.removeAttribute("src");
-  video.load();
-  video.style.display = "block";
-  destroyCfPlayer();
+  destroyPlayer();
 
   clearSubtitles();
   stopTTS();
@@ -1394,7 +1364,6 @@ function stopPlayer() {
   playerPaused = false;
 
   // Clear preload caches
-  discardPrewarm();
   preloadedImages.clear();
   window.speechSynthesis.cancel();
 
