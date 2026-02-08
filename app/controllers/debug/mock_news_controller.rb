@@ -238,7 +238,7 @@ module Debug
     def bumper_url(customer_code)
       bumper_uid = ENV["CLOUDFLARE_BUMPER_UID"]
       if bumper_uid.present? && customer_code.present?
-        "https://customer-#{customer_code}.cloudflarestream.com/#{bumper_uid}/iframe?controls=false&letterboxColor=000000"
+        "https://customer-#{customer_code}.cloudflarestream.com/#{bumper_uid}/iframe?controls=false&letterboxColor=000000&autoplay=true&muted=true&preload=auto"
       else
         "/MENNintroBlank.mp4"
       end
@@ -250,7 +250,7 @@ module Debug
       stories_data = bulletin.debug_stories.where(status: "done").order(:story_number).map do |story|
         uid = story.cloudflare_stream_uid
         video_url = if uid.present? && customer_code.present?
-                      "https://customer-#{customer_code}.cloudflarestream.com/#{uid}/iframe?controls=false&letterboxColor=000000"
+                      "https://customer-#{customer_code}.cloudflarestream.com/#{uid}/iframe?controls=false&letterboxColor=000000&preload=auto&muted=true"
                     else
                       "/debug/mock_news/stories/#{story.id}/video"
                     end
