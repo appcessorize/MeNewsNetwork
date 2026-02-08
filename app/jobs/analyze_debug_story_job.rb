@@ -56,6 +56,9 @@ class AnalyzeDebugStoryJob < ApplicationJob
       error_message: nil
     )
 
+    # 3b. Generate TTS audio for story intro
+    generate_tts(story)
+
     # 4. Upload to Cloudflare Stream
     cf_uid = upload_to_cloudflare(story, staging_path)
 
@@ -108,10 +111,34 @@ class AnalyzeDebugStoryJob < ApplicationJob
       Rails.logger.warn("[debug_news] CF Stream video not ready after 5min, proceeding anyway: #{uid}")
     end
 
+    # Enable MP4 downloads on the video
+    begin
+      cf_client.enable_downloads(uid)
+      Rails.logger.info("[debug_news] CF Stream downloads enabled for: #{uid}")
+    rescue => e
+      Rails.logger.warn("[debug_news] Failed to enable downloads (non-fatal): #{e.message}")
+    end
+
     uid
   rescue => e
     Rails.logger.warn("[debug_news] Cloudflare upload failed (non-fatal): #{e.message}")
     nil
+  end
+
+  def generate_tts(story)
+    return unless story.intro_text.present?
+
+    Rails.logger.info("[debug_news] Generating TTS for story ##{story.story_number}...")
+    pcm = Gemini::TtsGenerator.new.generate(text: story.intro_text, voice: "Orus")
+    wav = Audio::WavBuilder.build(pcm)
+    story.tts_audio.attach(
+      io: StringIO.new(wav),
+      filename: "story_#{story.id}_tts.wav",
+      content_type: "audio/wav"
+    )
+    Rails.logger.info("[debug_news] TTS audio attached for story ##{story.story_number}")
+  rescue => e
+    Rails.logger.warn("[debug_news] TTS generation failed (non-fatal): #{e.message}")
   end
 
   def cleanup_staging_file(path)

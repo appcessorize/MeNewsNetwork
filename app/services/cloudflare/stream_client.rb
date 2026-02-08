@@ -72,6 +72,20 @@ module Cloudflare
       video.dig(:status, :state) == "ready"
     end
 
+    def enable_downloads(uid)
+      response = @conn.post("#{BASE_URL}/accounts/#{@account_id}/stream/#{uid}/downloads") do |req|
+        req.headers["Authorization"] = "Bearer #{@api_token}"
+      end
+
+      result = JSON.parse(response.body, symbolize_names: true)
+      unless result[:success]
+        errors = result[:errors]&.map { |e| e[:message] }&.join(", ") || "unknown error"
+        raise "Cloudflare enable downloads failed: #{errors}"
+      end
+
+      true
+    end
+
     def get_video(uid)
       response = @conn.get("#{BASE_URL}/accounts/#{@account_id}/stream/#{uid}") do |req|
         req.headers["Authorization"] = "Bearer #{@api_token}"

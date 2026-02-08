@@ -1,5 +1,5 @@
 <% content_for :head do %>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+  <script src="https://embed.cloudflarestream.com/embed/sdk.latest.js"></script>
   <%= lazy_javascript_module_tag "mock_news" %>
 <% end %>
 
@@ -187,7 +187,13 @@
         </div>
       </div>
 
-      <!-- Video element (object-cover: crop to fill, never stretch) -->
+      <!-- Cloudflare Stream iframe (used for CF-hosted videos) -->
+      <iframe id="cf-stream-player"
+              style="position:absolute;top:0;left:0;width:100%;height:100%;display:none;border:none;"
+              allow="autoplay; encrypted-media"
+              allowfullscreen></iframe>
+
+      <!-- Local video element (used for non-CF videos like bumper fallback) -->
       <video id="bulletin-video"
              style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;display:block;"
              playsinline></video>

@@ -2,6 +2,7 @@ class DebugStory < ApplicationRecord
   belongs_to :debug_bulletin
 
   has_one_attached :media
+  has_one_attached :tts_audio
 
   STATUSES = %w[pending analyzing done failed].freeze
   STORY_TYPES = %w[video].freeze

@@ -182,6 +182,25 @@ module Debug
         Rails.logger.warn("[debug_news] Building bulletin with #{failed} failed stories")
       end
 
+      # Generate weather TTS if narration text exists and not already generated
+      weather_narration = bulletin.weather_json&.dig("narration", "weatherNarration") ||
+                          bulletin.weather_json&.dig(:narration, :weatherNarration)
+      if weather_narration.present? && !bulletin.weather_tts_audio.attached?
+        begin
+          Rails.logger.info("[debug_news] Generating weather TTS...")
+          pcm = Gemini::TtsGenerator.new.generate(text: weather_narration, voice: "Orus")
+          wav = Audio::WavBuilder.build(pcm)
+          bulletin.weather_tts_audio.attach(
+            io: StringIO.new(wav),
+            filename: "weather_tts.wav",
+            content_type: "audio/wav"
+          )
+          Rails.logger.info("[debug_news] Weather TTS audio attached")
+        rescue => e
+          Rails.logger.warn("[debug_news] Weather TTS generation failed (non-fatal): #{e.message}")
+        end
+      end
+
       master = assemble_master_json(bulletin)
       bulletin.update!(master_json: master, status: "ready")
 
@@ -219,7 +238,7 @@ module Debug
     def bumper_url(customer_code)
       bumper_uid = ENV["CLOUDFLARE_BUMPER_UID"]
       if bumper_uid.present? && customer_code.present?
-        "https://customer-#{customer_code}.cloudflarestream.com/#{bumper_uid}/manifest/video.m3u8"
+        "https://customer-#{customer_code}.cloudflarestream.com/#{bumper_uid}/iframe?controls=false&letterboxColor=000000"
       else
         "/MENNintroBlank.mp4"
       end
@@ -229,11 +248,18 @@ module Debug
       customer_code = Rails.configuration.x.cloudflare.customer_code
 
       stories_data = bulletin.debug_stories.where(status: "done").order(:story_number).map do |story|
-        video_url = if story.cloudflare_stream_uid.present? && customer_code.present?
-                      "https://customer-#{customer_code}.cloudflarestream.com/#{story.cloudflare_stream_uid}/manifest/video.m3u8"
+        uid = story.cloudflare_stream_uid
+        video_url = if uid.present? && customer_code.present?
+                      "https://customer-#{customer_code}.cloudflarestream.com/#{uid}/iframe?controls=false&letterboxColor=000000"
                     else
                       "/debug/mock_news/stories/#{story.id}/video"
                     end
+
+        poster_url = if uid.present? && customer_code.present?
+                       "https://customer-#{customer_code}.cloudflarestream.com/#{uid}/thumbnails/thumbnail.jpg?time=1s&height=176&width=176&fit=crop"
+                     end
+
+        tts_url = story.tts_audio.attached? ? Rails.application.routes.url_helpers.rails_blob_path(story.tts_audio, only_path: true) : nil
 
         {
           storyId: story.id,
@@ -245,11 +271,13 @@ module Debug
           introText: story.intro_text,
           subtitleSegments: story.subtitle_segments,
           videoUrl: video_url,
-          ttsUrl: nil
+          posterUrl: poster_url,
+          ttsUrl: tts_url
         }
       end
 
       weather = bulletin.weather_json || {}
+      weather_tts_url = bulletin.weather_tts_audio.attached? ? Rails.application.routes.url_helpers.rails_blob_path(bulletin.weather_tts_audio, only_path: true) : nil
 
       {
         bulletinId: bulletin.id,
@@ -263,10 +291,10 @@ module Debug
           raw: weather["raw"] || weather[:raw],
           report: weather["report"] || weather[:report],
           narration: weather["narration"] || weather[:narration],
-          ttsUrl: nil
+          ttsUrl: weather_tts_url
         },
         stories: stories_data,
-        ttsEnabled: false
+        ttsEnabled: true
       }
     end
   end

@@ -561,13 +561,7 @@ let playerPaused = false;
 let subtitleTimer = null;
 let studioTimeout = null;
 let bgMusic = null;
-let currentTTS = null;
-
-// ── Preload Cache ─────────────────────────────
-const preloadCache = {
-  tts: new Map(),     // segmentIndex → { blobUrl, status }
-  posters: new Map(), // videoUrl → { dataUrl, status }
-};
+let currentAudio = null;
 
 // ── Activate player (responsive placement) ───
 function activatePlayer() {
@@ -621,92 +615,76 @@ function setBgMusicVolume(targetVol, fadeDuration = 500) {
   requestAnimationFrame(fade);
 }
 
-// ── TTS (Text-to-Speech via Gemini) ─────────────────────
-let currentAudio = null;
+// ── CF Stream Player (iframe + SDK) ───────────
+let cfPlayer = null;
 
-async function prefetchTTS(text, segmentIndex) {
-  if (!text) return;
-  if (preloadCache.tts.has(segmentIndex)) return;
-  preloadCache.tts.set(segmentIndex, { blobUrl: null, status: "loading" });
-  try {
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
-      body: JSON.stringify({ text, voice: "Orus" })
-    });
-    if (!res.ok) { preloadCache.tts.set(segmentIndex, { blobUrl: null, status: "failed" }); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    preloadCache.tts.set(segmentIndex, { blobUrl: url, status: "ready" });
-  } catch {
-    preloadCache.tts.set(segmentIndex, { blobUrl: null, status: "failed" });
-  }
+function isCfStreamUrl(url) {
+  return url && url.includes("cloudflarestream.com/") && url.includes("/iframe");
 }
 
-async function speakText(text, segmentIndex) {
-  if (!text) return;
+function destroyCfPlayer() {
+  if (cfPlayer) {
+    try { cfPlayer.pause(); } catch {}
+    cfPlayer = null;
+  }
+  const iframe = document.getElementById("cf-stream-player");
+  if (iframe) { iframe.src = ""; iframe.style.display = "none"; }
+}
 
-  // Stop any currently playing audio
+function playCfVideo(src, muted, onReady, onEnded) {
+  const video = document.getElementById("bulletin-video");
+  const iframe = document.getElementById("cf-stream-player");
+
+  video.pause();
+  video.style.display = "none";
+  iframe.style.display = "block";
+  iframe.src = src;
+
+  cfPlayer = Stream(iframe);
+  cfPlayer.muted = muted;
+
+  cfPlayer.addEventListener("canplay", function handler() {
+    cfPlayer.removeEventListener("canplay", handler);
+    onReady();
+    cfPlayer.play();
+  });
+  cfPlayer.addEventListener("ended", function handler() {
+    cfPlayer.removeEventListener("ended", handler);
+    onEnded();
+  });
+  cfPlayer.addEventListener("error", function handler() {
+    cfPlayer.removeEventListener("error", handler);
+    onEnded();
+  });
+}
+
+function playLocalVideo(src, muted, onReady, onEnded) {
+  const video = document.getElementById("bulletin-video");
+  destroyCfPlayer();
+  video.style.display = "block";
+  video.muted = muted;
+  video.onended = onEnded;
+  video.onerror = onEnded;
+  video.src = src;
+  video.oncanplay = () => {
+    video.oncanplay = null;
+    onReady();
+    video.play().catch(onEnded);
+  };
+  video.load();
+}
+
+// ── TTS Audio (pre-generated, play from URL) ──
+function playTtsAudio(url) {
+  if (!url) return Promise.resolve();
   stopTTS();
-
-  // Check preload cache first
-  if (segmentIndex != null) {
-    const cached = preloadCache.tts.get(segmentIndex);
-    if (cached && cached.status === "ready" && cached.blobUrl) {
-      log("  TTS: using preloaded audio");
-      return new Promise((resolve) => {
-        const audio = new Audio(cached.blobUrl);
-        currentAudio = audio;
-        audio.onended = () => { currentAudio = null; resolve(); };
-        audio.onerror = () => { currentAudio = null; resolve(); };
-        audio.play().catch(() => { currentAudio = null; resolve(); });
-      });
-    }
-  }
-
-  // Fallback: fetch live
-  try {
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": csrfToken()
-      },
-      body: JSON.stringify({ text, voice: "Orus" })
-    });
-
-    if (!res.ok) {
-      console.warn("[TTS] Gemini TTS failed:", res.status);
-      return;
-    }
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-
-    return new Promise((resolve) => {
-      const audio = new Audio(url);
-      currentAudio = audio;
-
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        currentAudio = null;
-        resolve();
-      };
-
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        currentAudio = null;
-        resolve();
-      };
-
-      audio.play().catch(() => {
-        currentAudio = null;
-        resolve();
-      });
-    });
-  } catch (err) {
-    console.error("[TTS] Error:", err);
-  }
+  return new Promise((resolve) => {
+    const audio = new Audio(url);
+    currentAudio = audio;
+    audio.onended = () => { currentAudio = null; resolve(); };
+    audio.onerror = () => { currentAudio = null; resolve(); };
+    audio.play().catch(() => { currentAudio = null; resolve(); });
+  });
 }
 
 function stopTTS() {
@@ -729,156 +707,19 @@ function hideTicker() {
   if (ticker) ticker.style.display = "none";
 }
 
-// ── Poster Capture ────────────────────────────
-// Derive Cloudflare Stream thumbnail URL from HLS manifest URL
-// e.g. https://customer-xxx.cloudflarestream.com/{uid}/manifest/video.m3u8
-//   → https://customer-xxx.cloudflarestream.com/{uid}/thumbnails/thumbnail.jpg?time=1s&height=352&width=352&fit=crop
-function cfThumbnailUrl(videoUrl) {
-  if (!videoUrl) return null;
-  const match = videoUrl.match(/^(https:\/\/customer-[^/]+\.cloudflarestream\.com\/[^/]+)\//);
-  if (!match) return null;
-  return match[1] + "/thumbnails/thumbnail.jpg?time=1s&height=176&width=176&fit=crop";
-}
-
-function prefetchPoster(videoUrl) {
-  if (!videoUrl) return Promise.resolve();
-  if (preloadCache.posters.has(videoUrl)) return Promise.resolve();
-  preloadCache.posters.set(videoUrl, { imgUrl: null, status: "loading" });
-
-  const thumbUrl = cfThumbnailUrl(videoUrl);
-
-  if (thumbUrl) {
-    // Cloudflare Stream: preload native thumbnail
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      const timeout = setTimeout(() => {
-        preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
-        resolve();
-      }, 8000);
-      img.onload = () => {
-        clearTimeout(timeout);
-        preloadCache.posters.set(videoUrl, { imgUrl: thumbUrl, status: "ready" });
-        resolve();
-      };
-      img.onerror = () => {
-        clearTimeout(timeout);
-        preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
-        resolve();
-      };
-      img.src = thumbUrl;
-    });
-  }
-
-  // Non-Cloudflare: use temp video + canvas (same-origin only)
-  return new Promise((resolve) => {
-    const tempCanvas = document.createElement("canvas");
-    tempCanvas.width = 176;
-    tempCanvas.height = 176;
-    const tctx = tempCanvas.getContext("2d");
-
-    const tempVid = document.createElement("video");
-    tempVid.muted = true;
-    tempVid.preload = "auto";
-    tempVid.playsInline = true;
-
-    const cleanup = () => { tempVid.src = ""; tempVid.remove(); resolve(); };
-    const timeout = setTimeout(() => {
-      preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
-      cleanup();
-    }, 8000);
-
-    tempVid.addEventListener("loadeddata", () => {
-      tempVid.currentTime = Math.min(1, tempVid.duration * 0.1);
-    }, { once: true });
-
-    tempVid.addEventListener("seeked", () => {
-      clearTimeout(timeout);
-      const vw = tempVid.videoWidth, vh = tempVid.videoHeight;
-      const size = Math.min(vw, vh);
-      const sx = (vw - size) / 2, sy = (vh - size) / 2;
-      tctx.drawImage(tempVid, sx, sy, size, size, 0, 0, tempCanvas.width, tempCanvas.height);
-      try {
-        const dataUrl = tempCanvas.toDataURL("image/jpeg", 0.5);
-        preloadCache.posters.set(videoUrl, { imgUrl: dataUrl, status: "ready" });
-      } catch {
-        preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
-      }
-      cleanup();
-    }, { once: true });
-
-    tempVid.addEventListener("error", () => {
-      clearTimeout(timeout);
-      preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
-      cleanup();
-    }, { once: true });
-
-    tempVid.src = videoUrl;
-    tempVid.load();
-  });
-}
-
-function capturePoster(videoUrl) {
-  return new Promise((resolve) => {
-    const canvas = document.getElementById("poster-canvas");
-    if (!canvas) { resolve(); return; }
-    const ctx = canvas.getContext("2d");
-
-    // Check preload cache first
-    const cached = preloadCache.posters.get(videoUrl);
-    if (cached && cached.status === "ready" && cached.imgUrl) {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); resolve(); };
-      img.onerror = () => resolve();
-      img.src = cached.imgUrl;
-      return;
-    }
-
-    // Try Cloudflare thumbnail directly (even without cache)
-    const thumbUrl = cfThumbnailUrl(videoUrl);
-    if (thumbUrl) {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); resolve(); };
-      img.onerror = () => {
-        ctx.fillStyle = "#1a1a2e";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        resolve();
-      };
-      img.src = thumbUrl;
-      return;
-    }
-
-    // Fallback: dark placeholder + live capture (same-origin videos only)
+// ── Poster Display (from pre-computed URL) ────
+function showPoster(posterUrl) {
+  const canvas = document.getElementById("poster-canvas");
+  if (!canvas || !posterUrl) return;
+  const ctx = canvas.getContext("2d");
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  img.onerror = () => {
     ctx.fillStyle = "#1a1a2e";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const tempVid = document.createElement("video");
-    tempVid.muted = true;
-    tempVid.preload = "auto";
-    tempVid.playsInline = true;
-
-    const cleanup = () => { tempVid.src = ""; tempVid.remove(); resolve(); };
-    const timeout = setTimeout(cleanup, 5000);
-
-    tempVid.addEventListener("loadeddata", () => {
-      tempVid.currentTime = Math.min(1, tempVid.duration * 0.1);
-    }, { once: true });
-
-    tempVid.addEventListener("seeked", () => {
-      clearTimeout(timeout);
-      const vw = tempVid.videoWidth, vh = tempVid.videoHeight;
-      const size = Math.min(vw, vh);
-      const sx = (vw - size) / 2, sy = (vh - size) / 2;
-      ctx.drawImage(tempVid, sx, sy, size, size, 0, 0, canvas.width, canvas.height);
-      cleanup();
-    }, { once: true });
-
-    tempVid.addEventListener("error", () => { clearTimeout(timeout); cleanup(); }, { once: true });
-    tempVid.src = videoUrl;
-    tempVid.load();
-  });
+  };
+  img.src = posterUrl;
 }
 
 // ── Weather Display ───────────────────────────
@@ -955,76 +796,6 @@ function clearSubtitles() {
   if (el) el.style.display = "none";
 }
 
-
-// ── Preparation Phase ─────────────────────────
-function showPreparationScreen() {
-  const el = document.getElementById("prep-overlay");
-  if (el) el.style.display = "flex";
-}
-
-function hidePreparationScreen() {
-  const el = document.getElementById("prep-overlay");
-  if (el) el.style.display = "none";
-}
-
-function updatePreparationProgress(pct, detail) {
-  const bar = document.getElementById("prep-bar");
-  const detailEl = document.getElementById("prep-detail");
-  if (bar) bar.style.width = Math.min(100, Math.round(pct)) + "%";
-  if (detailEl) detailEl.textContent = detail || "";
-}
-
-async function prepareBulletin() {
-  // 1. Gather all TTS segments
-  const ttsSegments = [];
-  const posterUrls = [];
-  playerQueue.forEach((seg, i) => {
-    if (seg.type === "studio" && seg.introText) {
-      ttsSegments.push({ index: i, text: seg.introText });
-    }
-    if (seg.type === "studio" && seg.mode === "story" && seg.videoUrl) {
-      if (!posterUrls.includes(seg.videoUrl)) posterUrls.push(seg.videoUrl);
-    }
-  });
-
-  const totalSteps = ttsSegments.length + posterUrls.length;
-  let completed = 0;
-
-  // 2. Prefetch all TTS (3 concurrent)
-  updatePreparationProgress(0, "Loading voiceovers...");
-  const ttsChunks = [];
-  for (let i = 0; i < ttsSegments.length; i += 3) {
-    ttsChunks.push(ttsSegments.slice(i, i + 3));
-  }
-  for (const chunk of ttsChunks) {
-    await Promise.all(chunk.map(async (s) => {
-      await prefetchTTS(s.text, s.index);
-      completed++;
-      const pct = (completed / totalSteps) * 100;
-      updatePreparationProgress(pct, `Voiceover ${completed} of ${ttsSegments.length}...`);
-    }));
-  }
-
-  // 3. Prefetch posters (2 concurrent)
-  updatePreparationProgress((completed / totalSteps) * 100, "Capturing thumbnails...");
-  const posterChunks = [];
-  for (let i = 0; i < posterUrls.length; i += 2) {
-    posterChunks.push(posterUrls.slice(i, i + 2));
-  }
-  for (const chunk of posterChunks) {
-    await Promise.all(chunk.map(async (url) => {
-      await prefetchPoster(url);
-      completed++;
-      const pct = (completed / totalSteps) * 100;
-      updatePreparationProgress(pct, "Capturing thumbnails...");
-    }));
-  }
-
-  updatePreparationProgress(100, "Ready!");
-
-  return true;
-}
-
 // ── Build Playback Queue ──────────────────────
 function buildPlaybackQueue(master) {
   const queue = [];
@@ -1041,9 +812,9 @@ function buildPlaybackQueue(master) {
       mode: "story",
       headline: story.studioHeadline || story.storyTitle,
       emoji: story.storyEmoji,
-      introText: story.introText,
+      ttsUrl: story.ttsUrl,
       subtitles: story.subtitleSegments,
-      videoUrl: story.videoUrl,
+      posterUrl: story.posterUrl,
       background: master.assets?.studioBgUrl,
       label: "Intro: " + (story.storyTitle || "Story " + story.storyNumber)
     });
@@ -1065,7 +836,7 @@ function buildPlaybackQueue(master) {
       type: "studio",
       mode: "weather",
       weather: weather,
-      introText: weather.narration?.weatherNarration || "",
+      ttsUrl: weather.ttsUrl,
       subtitles: weather.narration?.subtitleSegments,
       background: master.assets?.studioBgUrl,
       label: "Weather Report"
@@ -1081,7 +852,7 @@ function buildPlaybackQueue(master) {
 }
 
 // ── Play Bulletin ─────────────────────────────
-async function playBulletin() {
+function playBulletin() {
   if (!masterJson) return log("ERROR: Build the bulletin first");
 
   log("Starting bulletin playback...");
@@ -1093,22 +864,12 @@ async function playBulletin() {
   playerQueue.forEach((seg, i) => log("  " + (i + 1) + ". [" + seg.type + "] " + seg.label));
 
   initBgMusic();
-  // Start music immediately on user gesture so it's allowed by autoplay policy
   if (bgMusic) {
     bgMusic.volume = 0.01;
     bgMusic.play().catch(() => log("  bg music autoplay blocked"));
   }
   activatePlayer();
-
-  const section = document.getElementById("player-section");
-  section.scrollIntoView({ behavior: "smooth" });
-
-  // Preparation phase — preload everything before playback
-  showPreparationScreen();
-  log("Preparing bulletin (preloading TTS, posters, first video)...");
-  await prepareBulletin();
-  log("Preparation complete — starting playback.");
-
+  document.getElementById("player-section").scrollIntoView({ behavior: "smooth" });
   playNextSegment();
 }
 
@@ -1139,279 +900,41 @@ function playNextSegment() {
   }
 }
 
-// ── Bumper Segment (bg music full volume, HLS support) ─────
+// ── Bumper Segment (bg music full volume) ─────
 function playBumperSegment(segment) {
-  const video = document.getElementById("bulletin-video");
   const overlay = document.getElementById("studio-overlay");
 
   clearSubtitles();
   stopTTS();
-
-  // Background music full volume during bumper
   setBgMusicVolume(1.0, 300);
-
   hideTicker();
 
-  video.muted = true;
+  const onReady = () => { overlay.style.display = "none"; };
+  const advance = () => { playerIndex++; playNextSegment(); };
 
-  // Show studio overlay as visual hold (hides black video element)
-  overlay.style.display = "flex";
-  document.getElementById("studio-story-content").style.display = "none";
-  document.getElementById("studio-weather-content").style.display = "none";
-
-  // Ready gate: hide all overlays and show video when bumper can play
-  const showVideoWhenReady = () => {
-    hidePreparationScreen();
-    overlay.style.display = "none";
-    video.style.display = "block";
-  };
-  video.onended = () => { playerIndex++; playNextSegment(); };
-  video.onerror = (e) => { log("Bumper error: " + (e?.message || "unknown") + ", skipping..."); playerIndex++; playNextSegment(); };
-
-  const isHls = segment.src && segment.src.endsWith(".m3u8");
-
-  // Check if this source is already loaded (preloaded during studio TTS)
-  const alreadyLoaded = activeHls
-    ? activeHls._loadedUrl === segment.src
-    : video.src && video.src === segment.src;
-
-  if (alreadyLoaded && video.readyState >= 2) {
-    showVideoWhenReady();
-    video.play().catch(err => {
-      log("Bumper play failed: " + err.message);
-      playerIndex++;
-      playNextSegment();
-    });
-    return;
-  }
-
-  if (alreadyLoaded) {
-    // Preloaded but not fully buffered — wait for it (don't destroy!)
-    log("  Bumper preloaded but buffering (readyState=" + video.readyState + "), waiting...");
-    const onReady = () => {
-      video.removeEventListener("canplay", onReady);
-      clearTimeout(fallback);
-      showVideoWhenReady();
-      video.play().catch(err => {
-        log("Bumper play failed: " + err.message);
-        playerIndex++;
-        playNextSegment();
-      });
-    };
-    const fallback = setTimeout(() => {
-      video.removeEventListener("canplay", onReady);
-      showVideoWhenReady();
-      video.play().catch(err => {
-        log("Bumper play failed (timeout): " + err.message);
-        playerIndex++;
-        playNextSegment();
-      });
-    }, 8000);
-    video.addEventListener("canplay", onReady, { once: true });
-    return;
-  }
-
-  // Not preloaded at all — load on demand
-  destroyHls();
-
-  if (isHls) {
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = segment.src;
-      video.oncanplay = () => {
-        video.oncanplay = null;
-        showVideoWhenReady();
-        video.play().catch(err => {
-          log("Bumper play failed: " + err.message);
-          playerIndex++;
-          playNextSegment();
-        });
-      };
-      video.load();
-    } else if (typeof Hls !== "undefined" && Hls.isSupported()) {
-      activeHls = new Hls();
-      activeHls.loadSource(segment.src);
-      activeHls._loadedUrl = segment.src;
-      activeHls.attachMedia(video);
-      activeHls.on(Hls.Events.MANIFEST_PARSED, () => {
-        showVideoWhenReady();
-        video.play().catch(err => {
-          log("Bumper play failed: " + err.message);
-          playerIndex++;
-          playNextSegment();
-        });
-      });
-      activeHls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          log("HLS fatal error in bumper: " + data.type + ", skipping...");
-          destroyHls();
-          playerIndex++;
-          playNextSegment();
-        }
-      });
-    } else {
-      log("HLS not supported, skipping bumper: " + segment.label);
-      playerIndex++;
-      playNextSegment();
-    }
+  if (isCfStreamUrl(segment.src)) {
+    playCfVideo(segment.src, true, onReady, advance);
   } else {
-    video.src = segment.src;
-    video.oncanplay = () => {
-      video.oncanplay = null;
-      showVideoWhenReady();
-      video.play().catch(err => {
-        log("Bumper play failed: " + err.message);
-        playerIndex++;
-        playNextSegment();
-      });
-    };
-    video.load();
+    playLocalVideo(segment.src, true, onReady, advance);
   }
-
-  // Fallback timeout: if video still hasn't loaded after 8s, force show
-  setTimeout(() => {
-    if (overlay.style.display !== "none" || document.getElementById("prep-overlay").style.display !== "none") {
-      log("  Bumper load timeout — forcing playback");
-      showVideoWhenReady();
-      video.play().catch(() => { playerIndex++; playNextSegment(); });
-    }
-  }, 8000);
 }
 
-// ── HLS.js instance (cleaned up on stop) ─────
-let activeHls = null;
-
-// ── Video Segment (bg music off, HLS.js for .m3u8) ──────────────
+// ── Video Segment (bg music off) ──────────────
 function playVideoSegment(segment) {
-  const video = document.getElementById("bulletin-video");
   const overlay = document.getElementById("studio-overlay");
 
   clearSubtitles();
   stopTTS();
-
-  // Silence bg music during user video
   setBgMusicVolume(0, 500);
-
-  // Show ticker with headline during video playback
   showTicker(segment.headline);
 
-  video.muted = false;
-  video.onended = () => { playerIndex++; playNextSegment(); };
-  video.onerror = (e) => {
-    log("Video error: " + segment.label + " (" + (e?.message || "unknown") + "), skipping...");
-    playerIndex++;
-    playNextSegment();
-  };
+  const onReady = () => { overlay.style.display = "none"; };
+  const advance = () => { playerIndex++; playNextSegment(); };
 
-  // Ready gate: only hide overlay and show video when it can play
-  const showVideoWhenReady = () => {
-    overlay.style.display = "none";
-    video.style.display = "block";
-  };
-
-  const isHls = segment.src && segment.src.endsWith(".m3u8");
-
-  // Check if this source is already loaded (preloaded during studio TTS)
-  const alreadyLoaded = activeHls
-    ? activeHls._loadedUrl === segment.src
-    : video.src && video.src === segment.src;
-
-  if (alreadyLoaded && video.readyState >= 2) {
-    showVideoWhenReady();
-    video.play().catch(err => {
-      log("Autoplay blocked, trying muted: " + err.message);
-      video.muted = true;
-      video.play().catch(() => { playerIndex++; playNextSegment(); });
-    });
-    return;
-  }
-
-  if (alreadyLoaded) {
-    // Preloaded but not fully buffered — wait for it (don't destroy!)
-    log("  Video preloaded but buffering (readyState=" + video.readyState + "), waiting...");
-    const onReady = () => {
-      video.removeEventListener("canplay", onReady);
-      clearTimeout(fallback);
-      showVideoWhenReady();
-      video.play().catch(err => {
-        log("Autoplay blocked, trying muted: " + err.message);
-        video.muted = true;
-        video.play().catch(() => { playerIndex++; playNextSegment(); });
-      });
-    };
-    const fallback = setTimeout(() => {
-      video.removeEventListener("canplay", onReady);
-      showVideoWhenReady();
-      video.play().catch(err => {
-        log("Video play failed (timeout): " + err.message);
-        video.muted = true;
-        video.play().catch(() => { playerIndex++; playNextSegment(); });
-      });
-    }, 5000);
-    video.addEventListener("canplay", onReady, { once: true });
-    return;
-  }
-
-  // Not preloaded at all — load on demand (studio overlay stays visible as hold frame)
-  destroyHls();
-
-  if (isHls) {
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = segment.src;
-      video.oncanplay = () => {
-        video.oncanplay = null;
-        showVideoWhenReady();
-        video.play().catch(err => {
-          log("Autoplay blocked, trying muted: " + err.message);
-          video.muted = true;
-          video.play().catch(() => { playerIndex++; playNextSegment(); });
-        });
-      };
-      video.load();
-    } else if (typeof Hls !== "undefined" && Hls.isSupported()) {
-      activeHls = new Hls();
-      activeHls.loadSource(segment.src);
-      activeHls._loadedUrl = segment.src;
-      activeHls.attachMedia(video);
-      activeHls.on(Hls.Events.MANIFEST_PARSED, () => {
-        showVideoWhenReady();
-        video.play().catch(err => {
-          log("Autoplay blocked, trying muted: " + err.message);
-          video.muted = true;
-          video.play().catch(() => { playerIndex++; playNextSegment(); });
-        });
-      });
-      activeHls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          log("HLS fatal error: " + data.type + ", skipping...");
-          destroyHls();
-          playerIndex++;
-          playNextSegment();
-        }
-      });
-    } else {
-      log("HLS not supported, skipping: " + segment.label);
-      playerIndex++;
-      playNextSegment();
-    }
+  if (isCfStreamUrl(segment.src)) {
+    playCfVideo(segment.src, false, onReady, advance);
   } else {
-    video.src = segment.src;
-    video.oncanplay = () => {
-      video.oncanplay = null;
-      showVideoWhenReady();
-      video.play().catch(err => {
-        log("Autoplay blocked, trying muted: " + err.message);
-        video.muted = true;
-        video.play().catch(() => { playerIndex++; playNextSegment(); });
-      });
-    };
-    video.load();
-  }
-}
-
-function destroyHls() {
-  if (activeHls) {
-    activeHls.destroy();
-    activeHls = null;
+    playLocalVideo(segment.src, false, onReady, advance);
   }
 }
 
@@ -1419,96 +942,50 @@ function destroyHls() {
 async function showStudioSegment(segment) {
   const video = document.getElementById("bulletin-video");
   const overlay = document.getElementById("studio-overlay");
-  const storyContent = document.getElementById("studio-story-content");
-  const weatherContent = document.getElementById("studio-weather-content");
 
-  hidePreparationScreen();
   hideTicker();
-
   video.pause();
-  video.removeAttribute("src");
   video.style.display = "none";
+  destroyCfPlayer();
   clearSubtitles();
-
-  // Background music low during studio intros
   setBgMusicVolume(0.18, 800);
 
-  // Setup overlay
   overlay.style.display = "flex";
   if (segment.background) overlay.style.backgroundImage = `url(${segment.background})`;
 
   if (segment.mode === "story") {
-    storyContent.style.display = "flex";
-    weatherContent.style.display = "none";
-
+    document.getElementById("studio-story-content").style.display = "flex";
+    document.getElementById("studio-weather-content").style.display = "none";
     document.getElementById("studio-emoji").textContent = segment.emoji || "";
     document.getElementById("studio-headline").textContent = segment.headline || "";
 
-    // Clear poster canvas immediately to prevent stale flash
+    // Clear poster canvas then load from pre-computed URL
     const posterCanvas = document.getElementById("poster-canvas");
     if (posterCanvas) {
       const pctx = posterCanvas.getContext("2d");
       pctx.fillStyle = "#1a1a2e";
       pctx.fillRect(0, 0, posterCanvas.width, posterCanvas.height);
     }
-
-    // Capture poster from video (async, appears when ready)
-    if (segment.videoUrl) capturePoster(segment.videoUrl);
+    if (segment.posterUrl) showPoster(segment.posterUrl);
 
   } else if (segment.mode === "weather") {
-    storyContent.style.display = "none";
-    weatherContent.style.display = "flex";
+    document.getElementById("studio-story-content").style.display = "none";
+    document.getElementById("studio-weather-content").style.display = "flex";
     renderWeatherDisplay(segment.weather);
   }
 
-  // Preload the next video/bumper on the primary element while TTS plays (hidden behind overlay)
-  const nextSeg = playerQueue[playerIndex + 1];
-  if (nextSeg && (nextSeg.type === "video" || nextSeg.type === "bumper")) {
-    destroyHls();
-    const isHls = nextSeg.src?.endsWith(".m3u8");
-    if (isHls && typeof Hls !== "undefined" && Hls.isSupported()) {
-      activeHls = new Hls();
-      activeHls.loadSource(nextSeg.src);
-      activeHls._loadedUrl = nextSeg.src;
-      activeHls.attachMedia(video);
-      // Don't play yet — just buffer while TTS is speaking
-    } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = nextSeg.src;
-      video.preload = "auto";
-      video.load();
-    } else if (nextSeg.src) {
-      video.src = nextSeg.src;
-      video.preload = "auto";
-      video.load();
-    }
-    log("  Preloading next on primary: [" + nextSeg.type + "] " + nextSeg.label);
-  }
+  if (segment.subtitles?.length) startSubtitleTimer(segment.subtitles);
 
-  // Start subtitles (timed from Gemini's estimated reading pace)
-  if (segment.subtitles?.length) {
-    startSubtitleTimer(segment.subtitles);
-  }
-
-  // Narrate with TTS — await completion
-  log("  TTS: " + (segment.introText || "").substring(0, 80) + "...");
+  // Play pre-generated TTS audio
   const ttsStart = Date.now();
+  await playTtsAudio(segment.ttsUrl);
 
-  await speakText(segment.introText, playerIndex);
-
-  // Ensure minimum display time even if TTS is very fast/unavailable
   const elapsed = Date.now() - ttsStart;
-  const minDuration = 2500;
-  if (elapsed < minDuration) {
-    await new Promise(r => setTimeout(r, minDuration - elapsed));
-  }
+  if (elapsed < 2500) await new Promise(r => setTimeout(r, 2500 - elapsed));
 
   clearSubtitles();
 
-  // Advance to next segment (unless paused/stopped)
-  if (!playerPaused && playerIndex < playerQueue.length) {
-    playerIndex++;
-    playNextSegment();
-  }
+  if (!playerPaused) { playerIndex++; playNextSegment(); }
 }
 
 // ── Pause / Resume ────────────────────────────
@@ -1519,6 +996,7 @@ function togglePause() {
 
   if (playerPaused) {
     video.pause();
+    if (cfPlayer) try { cfPlayer.pause(); } catch {}
     if (bgMusic && !bgMusic.paused) bgMusic.pause();
     stopTTS();
     clearSubtitles();
@@ -1528,10 +1006,10 @@ function togglePause() {
   } else {
     if (bgMusic) bgMusic.play().catch(() => {});
     const segment = playerQueue[playerIndex];
-    if ((segment?.type === "video" || segment?.type === "bumper") && video.src) {
-      video.play();
+    if (segment?.type === "video" || segment?.type === "bumper") {
+      if (cfPlayer) try { cfPlayer.play(); } catch {}
+      else if (video.src) video.play();
     } else {
-      // For studio segments, advance to next
       playerIndex++;
       playNextSegment();
     }
@@ -1543,18 +1021,11 @@ function togglePause() {
 // ── Stop Player ───────────────────────────────
 function stopPlayer() {
   const video = document.getElementById("bulletin-video");
-  destroyHls();
   video.pause();
   video.removeAttribute("src");
   video.load();
   video.style.display = "block";
-
-  // Revoke all cached TTS blob URLs
-  for (const entry of preloadCache.tts.values()) {
-    if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
-  }
-  preloadCache.tts.clear();
-  preloadCache.posters.clear();
+  destroyCfPlayer();
 
   clearSubtitles();
   stopTTS();
@@ -1565,7 +1036,6 @@ function stopPlayer() {
 
   document.getElementById("studio-overlay").style.display = "none";
   hideTicker();
-  hidePreparationScreen();
   playerQueue = [];
   playerIndex = 0;
   playerPaused = false;
