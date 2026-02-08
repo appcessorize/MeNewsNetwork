@@ -133,7 +133,7 @@
             </div>
             <!-- Video poster square (right, bigger) -->
             <div class="relative w-44 h-44 bg-white/10 rounded-xl overflow-hidden border border-white/20 shadow-2xl shrink-0">
-              <canvas id="poster-canvas" width="352" height="352" class="w-full h-full object-cover"></canvas>
+              <canvas id="poster-canvas" width="176" height="176" class="w-full h-full object-cover"></canvas>
               <!-- Emoji + title inside poster, bottom overlay -->
               <div class="absolute bottom-0 left-0 right-0 bg-gray-300/30 backdrop-blur-sm px-2.5 py-1.5">
                 <div class="flex items-center gap-1.5">
@@ -156,6 +156,19 @@
             <span id="subtitle-text"
                   class="bg-black/60 text-white px-3 py-1.5 rounded-lg text-sm inline-block font-medium leading-snug backdrop-blur-sm"
                   style="display: none; max-width: 95%;"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- News ticker bar -->
+      <div id="news-ticker" class="absolute left-0 right-0 z-[15] flex items-center px-3"
+           style="display: none; bottom: 5%;">
+        <div class="flex items-center w-full bg-white/95 overflow-hidden" style="height: 28px;">
+          <div class="bg-red-600 text-white font-black text-[10px] italic tracking-tight px-2 shrink-0 uppercase h-full flex items-center">
+            Mock News
+          </div>
+          <div class="flex-1 min-w-0 px-2">
+            <span id="ticker-headline" class="text-[11px] font-semibold text-gray-800 truncate block"></span>
           </div>
         </div>
       </div>

@@ -551,7 +551,7 @@ function setBgMusicVolume(targetVol, fadeDuration = 500) {
   const startTime = performance.now();
 
   if (bgMusic.paused && targetVol > 0) {
-    bgMusic.play().catch(() => {});
+    bgMusic.play().catch(err => console.warn("[bgMusic] play() failed:", err.message));
   }
 
   function fade(now) {
@@ -659,6 +659,19 @@ function stopTTS() {
   }
 }
 
+// ── News Ticker ───────────────────────────────
+function showTicker(headline) {
+  const ticker = document.getElementById("news-ticker");
+  const el = document.getElementById("ticker-headline");
+  if (!ticker) return;
+  if (el) el.textContent = headline || "";
+  ticker.style.display = "flex";
+}
+function hideTicker() {
+  const ticker = document.getElementById("news-ticker");
+  if (ticker) ticker.style.display = "none";
+}
+
 // ── Poster Capture ────────────────────────────
 // Derive Cloudflare Stream thumbnail URL from HLS manifest URL
 // e.g. https://customer-xxx.cloudflarestream.com/{uid}/manifest/video.m3u8
@@ -667,7 +680,7 @@ function cfThumbnailUrl(videoUrl) {
   if (!videoUrl) return null;
   const match = videoUrl.match(/^(https:\/\/customer-[^/]+\.cloudflarestream\.com\/[^/]+)\//);
   if (!match) return null;
-  return match[1] + "/thumbnails/thumbnail.jpg?time=1s&height=352&width=352&fit=crop";
+  return match[1] + "/thumbnails/thumbnail.jpg?time=1s&height=176&width=176&fit=crop";
 }
 
 function prefetchPoster(videoUrl) {
@@ -703,8 +716,8 @@ function prefetchPoster(videoUrl) {
   // Non-Cloudflare: use temp video + canvas (same-origin only)
   return new Promise((resolve) => {
     const tempCanvas = document.createElement("canvas");
-    tempCanvas.width = 352;
-    tempCanvas.height = 352;
+    tempCanvas.width = 176;
+    tempCanvas.height = 176;
     const tctx = tempCanvas.getContext("2d");
 
     const tempVid = document.createElement("video");
@@ -729,7 +742,7 @@ function prefetchPoster(videoUrl) {
       const sx = (vw - size) / 2, sy = (vh - size) / 2;
       tctx.drawImage(tempVid, sx, sy, size, size, 0, 0, tempCanvas.width, tempCanvas.height);
       try {
-        const dataUrl = tempCanvas.toDataURL("image/jpeg", 0.7);
+        const dataUrl = tempCanvas.toDataURL("image/jpeg", 0.5);
         preloadCache.posters.set(videoUrl, { imgUrl: dataUrl, status: "ready" });
       } catch {
         preloadCache.posters.set(videoUrl, { imgUrl: null, status: "failed" });
@@ -1080,9 +1093,15 @@ function playBumperSegment(segment) {
   // Background music full volume during bumper
   setBgMusicVolume(1.0, 300);
 
-  overlay.style.display = "none";
-  video.style.display = "block";
+  hideTicker();
+
   video.muted = true;
+
+  // Ready gate: only hide overlay and show video when bumper can play
+  const showVideoWhenReady = () => {
+    overlay.style.display = "none";
+    video.style.display = "block";
+  };
   video.onended = () => { playerIndex++; playNextSegment(); };
   video.onerror = () => { log("Bumper error, skipping..."); playerIndex++; playNextSegment(); };
 
@@ -1090,11 +1109,12 @@ function playBumperSegment(segment) {
 
   // Check if this source is already loaded (preloaded during studio TTS)
   const alreadyLoaded = activeHls
-    ? activeHls.url === segment.src
+    ? activeHls._loadedUrl === segment.src
     : video.src && video.src === segment.src;
 
   if (alreadyLoaded && video.readyState >= 2) {
     log("  Bumper already buffered, playing immediately");
+    showVideoWhenReady();
     video.play().catch(err => {
       log("Bumper play failed: " + err.message);
       playerIndex++;
@@ -1112,6 +1132,7 @@ function playBumperSegment(segment) {
       video.src = segment.src;
       video.oncanplay = () => {
         video.oncanplay = null;
+        showVideoWhenReady();
         video.play().catch(err => {
           log("Bumper play failed: " + err.message);
           playerIndex++;
@@ -1122,8 +1143,10 @@ function playBumperSegment(segment) {
     } else if (typeof Hls !== "undefined" && Hls.isSupported()) {
       activeHls = new Hls();
       activeHls.loadSource(segment.src);
+      activeHls._loadedUrl = segment.src;
       activeHls.attachMedia(video);
       activeHls.on(Hls.Events.MANIFEST_PARSED, () => {
+        showVideoWhenReady();
         video.play().catch(err => {
           log("Bumper play failed: " + err.message);
           playerIndex++;
@@ -1148,6 +1171,7 @@ function playBumperSegment(segment) {
     video.src = segment.src;
     video.oncanplay = () => {
       video.oncanplay = null;
+      showVideoWhenReady();
       video.play().catch(err => {
         log("Bumper play failed: " + err.message);
         playerIndex++;
@@ -1190,7 +1214,7 @@ function playVideoSegment(segment) {
 
   // Check if this source is already loaded (preloaded during studio TTS)
   const alreadyLoaded = activeHls
-    ? activeHls.url === segment.src
+    ? activeHls._loadedUrl === segment.src
     : video.src && video.src === segment.src;
 
   if (alreadyLoaded && video.readyState >= 2) {
@@ -1223,6 +1247,7 @@ function playVideoSegment(segment) {
     } else if (typeof Hls !== "undefined" && Hls.isSupported()) {
       activeHls = new Hls();
       activeHls.loadSource(segment.src);
+      activeHls._loadedUrl = segment.src;
       activeHls.attachMedia(video);
       activeHls.on(Hls.Events.MANIFEST_PARSED, () => {
         showVideoWhenReady();
@@ -1289,9 +1314,18 @@ async function showStudioSegment(segment) {
   if (segment.mode === "story") {
     storyContent.style.display = "flex";
     weatherContent.style.display = "none";
+    showTicker(segment.headline);
 
     document.getElementById("studio-emoji").textContent = segment.emoji || "";
     document.getElementById("studio-headline").textContent = segment.headline || "";
+
+    // Clear poster canvas immediately to prevent stale flash
+    const posterCanvas = document.getElementById("poster-canvas");
+    if (posterCanvas) {
+      const pctx = posterCanvas.getContext("2d");
+      pctx.fillStyle = "#1a1a2e";
+      pctx.fillRect(0, 0, posterCanvas.width, posterCanvas.height);
+    }
 
     // Capture poster from video (async, appears when ready)
     if (segment.videoUrl) capturePoster(segment.videoUrl);
@@ -1299,6 +1333,7 @@ async function showStudioSegment(segment) {
   } else if (segment.mode === "weather") {
     storyContent.style.display = "none";
     weatherContent.style.display = "flex";
+    showTicker("Weather Report");
     renderWeatherDisplay(segment.weather);
   }
 
@@ -1310,6 +1345,7 @@ async function showStudioSegment(segment) {
     if (isHls && typeof Hls !== "undefined" && Hls.isSupported()) {
       activeHls = new Hls();
       activeHls.loadSource(nextSeg.src);
+      activeHls._loadedUrl = nextSeg.src;
       activeHls.attachMedia(video);
       // Don't play yet — just buffer while TTS is speaking
     } else if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
@@ -1404,6 +1440,7 @@ function stopPlayer() {
   setTimeout(() => { if (bgMusic) { bgMusic.pause(); bgMusic.currentTime = 0; } }, 400);
 
   document.getElementById("studio-overlay").style.display = "none";
+  hideTicker();
   hidePreparationScreen();
   playerQueue = [];
   playerIndex = 0;
