@@ -216,6 +216,15 @@ module Debug
       end
     end
 
+    def bumper_url(customer_code)
+      bumper_uid = ENV["CLOUDFLARE_BUMPER_UID"]
+      if bumper_uid.present? && customer_code.present?
+        "https://customer-#{customer_code}.cloudflarestream.com/#{bumper_uid}/manifest/video.m3u8"
+      else
+        "/MENNintroBlank.mp4"
+      end
+    end
+
     def assemble_master_json(bulletin)
       customer_code = Rails.configuration.x.cloudflare.customer_code
 
@@ -247,7 +256,7 @@ module Debug
         createdAt: bulletin.created_at&.iso8601,
         location: bulletin.location,
         assets: {
-          bumperUrl: "/MENNintroBlank.mp4",
+          bumperUrl: bumper_url(customer_code),
           studioBgUrl: "/newsBgEdited.jpeg"
         },
         weather: {

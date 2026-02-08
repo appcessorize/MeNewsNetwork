@@ -551,7 +551,7 @@ function setBgMusicVolume(targetVol, fadeDuration = 500) {
   function fade(now) {
     const elapsed = now - startTime;
     const progress = Math.min(elapsed / fadeDuration, 1);
-    bgMusic.volume = startVol + (targetVol - startVol) * progress;
+    bgMusic.volume = Math.min(1, Math.max(0, startVol + (targetVol - startVol) * progress));
     if (progress < 1) requestAnimationFrame(fade);
     else if (targetVol === 0) bgMusic.pause();
   }
