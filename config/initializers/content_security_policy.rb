@@ -10,7 +10,7 @@ Rails.application.configure do
     policy.font_src    :self, :data, "https://fonts.gstatic.com"
     policy.img_src     :self, :data, :blob, "https:", "http://localhost:*"
     policy.object_src  :none
-    policy.script_src  :self, "https://cdn.jsdelivr.net", "https://umamipod.pikapod.net"
+    policy.script_src  :self, "https://cdn.jsdelivr.net", "https://umamipod.pikapod.net", "https://embed.cloudflarestream.com"
     policy.style_src   :self, :unsafe_inline, "https://fonts.googleapis.com"
     policy.connect_src :self, :blob, "https://generativelanguage.googleapis.com", "https://api.cloudflare.com", "wss://localhost:*", "ws://localhost:*"
     policy.media_src   :self, :blob, "https://*.cloudflarestream.com"

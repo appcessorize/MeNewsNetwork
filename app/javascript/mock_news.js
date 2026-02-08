@@ -640,22 +640,32 @@ function playCfVideo(src, muted, onReady, onEnded) {
   iframe.style.display = "block";
   iframe.src = src;
 
-  cfPlayer = Stream(iframe);
-  cfPlayer.muted = muted;
+  // Wait for iframe to load before initializing SDK
+  const timeout = setTimeout(() => {
+    log("CF player timeout, skipping");
+    onEnded();
+  }, 15000);
 
-  cfPlayer.addEventListener("canplay", function handler() {
-    cfPlayer.removeEventListener("canplay", handler);
-    onReady();
-    cfPlayer.play();
-  });
-  cfPlayer.addEventListener("ended", function handler() {
-    cfPlayer.removeEventListener("ended", handler);
-    onEnded();
-  });
-  cfPlayer.addEventListener("error", function handler() {
-    cfPlayer.removeEventListener("error", handler);
-    onEnded();
-  });
+  iframe.addEventListener("load", () => {
+    cfPlayer = Stream(iframe);
+    cfPlayer.muted = muted;
+
+    cfPlayer.addEventListener("canplay", function handler() {
+      cfPlayer.removeEventListener("canplay", handler);
+      clearTimeout(timeout);
+      onReady();
+      cfPlayer.play();
+    });
+    cfPlayer.addEventListener("ended", function handler() {
+      cfPlayer.removeEventListener("ended", handler);
+      onEnded();
+    });
+    cfPlayer.addEventListener("error", function handler() {
+      cfPlayer.removeEventListener("error", handler);
+      clearTimeout(timeout);
+      onEnded();
+    });
+  }, { once: true });
 }
 
 function playLocalVideo(src, muted, onReady, onEnded) {
