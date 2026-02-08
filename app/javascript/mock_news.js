@@ -250,6 +250,7 @@ function bindButtons() {
     document.getElementById("event-log").textContent = "";
   });
   document.getElementById("btn-player-pause")?.addEventListener("click", togglePause);
+  document.getElementById("btn-player-next")?.addEventListener("click", skipToNextSegment);
   document.getElementById("btn-player-stop")?.addEventListener("click", stopPlayer);
 }
 
@@ -563,6 +564,12 @@ let studioTimeout = null;
 let bgMusic = null;
 let currentAudio = null;
 
+// Preload caches
+const preloadedAudio = new Map();   // url → Audio element (ready to play)
+const preloadedImages = new Map();  // url → Image element (loaded)
+let firstCfReady = false;           // true once first CF iframe is pre-warmed
+const LOG_START = performance.now();
+
 // ── Activate player (responsive placement) ───
 function activatePlayer() {
   const section = document.getElementById("player-section");
@@ -628,7 +635,7 @@ function destroyCfPlayer() {
     cfPlayer = null;
   }
   const iframe = document.getElementById("cf-stream-player");
-  if (iframe) { iframe.src = ""; iframe.style.display = "none"; }
+  if (iframe) { iframe.removeAttribute("src"); iframe.style.display = "none"; }
 }
 
 function playCfVideo(src, muted, onReady, onEnded) {
@@ -638,33 +645,87 @@ function playCfVideo(src, muted, onReady, onEnded) {
   video.pause();
   video.style.display = "none";
   iframe.style.display = "block";
-  iframe.src = src;
 
-  // Wait for iframe to load before initializing SDK
-  const timeout = setTimeout(() => {
-    log("CF player timeout, skipping");
+  let readyFired = false;
+  let endedFired = false;
+
+  function fireReady(via) {
+    if (readyFired) return;
+    readyFired = true;
+    clearTimeout(timeout);
+    log(`[CF] READY via: ${via}`);
+    onReady();
+  }
+
+  function fireEnded(via) {
+    if (endedFired) return;
+    endedFired = true;
+    clearTimeout(timeout);
+    log(`[CF] ENDED via: ${via}`);
     onEnded();
-  }, 15000);
+  }
 
-  iframe.addEventListener("load", () => {
-    cfPlayer = Stream(iframe);
+  const timeout = setTimeout(() => {
+    log("[CF] TIMEOUT (10s) — force-firing ready+ended");
+    fireReady("timeout");
+    setTimeout(() => fireEnded("timeout"), 500);
+  }, 10000);
+
+  function attachSdkEvents(player) {
+    cfPlayer = player;
     cfPlayer.muted = muted;
 
-    cfPlayer.addEventListener("canplay", function handler() {
-      cfPlayer.removeEventListener("canplay", handler);
-      clearTimeout(timeout);
-      onReady();
-      cfPlayer.play();
+    const readyEvents = ["canplay", "loadeddata", "playing"];
+    readyEvents.forEach(evt => {
+      cfPlayer.addEventListener(evt, function handler() {
+        cfPlayer.removeEventListener(evt, handler);
+        fireReady(evt);
+      });
     });
+
+    let firstTimeUpdate = true;
+    cfPlayer.addEventListener("timeupdate", function handler() {
+      if (firstTimeUpdate) {
+        firstTimeUpdate = false;
+        fireReady("timeupdate");
+      }
+    });
+
     cfPlayer.addEventListener("ended", function handler() {
       cfPlayer.removeEventListener("ended", handler);
-      onEnded();
+      fireEnded("ended");
     });
-    cfPlayer.addEventListener("error", function handler() {
+
+    cfPlayer.addEventListener("error", function handler(e) {
       cfPlayer.removeEventListener("error", handler);
-      clearTimeout(timeout);
-      onEnded();
+      log(`[CF] ERROR: ${e?.message || "unknown"}`);
+      fireEnded("error");
     });
+
+    // Log all events for debugging
+    ["play", "pause", "waiting", "stalled", "suspend", "seeked"].forEach(evt => {
+      cfPlayer.addEventListener(evt, () => log(`[CF] event: ${evt}`));
+    });
+  }
+
+  // If iframe already has this src loaded (pre-warmed), reuse SDK instance
+  if (firstCfReady && iframe.src === src && cfPlayer) {
+    log("[CF] Reusing pre-warmed iframe");
+    iframe.style.display = "block";
+    attachSdkEvents(cfPlayer);
+    cfPlayer.currentTime = 0;
+    cfPlayer.play().catch(err => log(`[CF] play() error: ${err.message}`));
+    return;
+  }
+
+  iframe.src = src;
+  log(`[CF] Loading iframe: ${src.substring(0, 80)}...`);
+
+  iframe.addEventListener("load", () => {
+    log("[CF] iframe loaded, initializing SDK");
+    const player = Stream(iframe);
+    attachSdkEvents(player);
+    player.play().catch(err => log(`[CF] play() error: ${err.message}`));
   }, { once: true });
 }
 
@@ -685,15 +746,32 @@ function playLocalVideo(src, muted, onReady, onEnded) {
 }
 
 // ── TTS Audio (pre-generated, play from URL) ──
-function playTtsAudio(url) {
+function playTtsAudio(url, onPlaying) {
   if (!url) return Promise.resolve();
   stopTTS();
   return new Promise((resolve) => {
-    const audio = new Audio(url);
+    let audio;
+    if (preloadedAudio.has(url)) {
+      audio = preloadedAudio.get(url);
+      audio.currentTime = 0;
+      log("[TTS] Using preloaded audio");
+    } else {
+      audio = new Audio(url);
+      log("[TTS] Audio not preloaded, creating on-the-fly");
+    }
     currentAudio = audio;
-    audio.onended = () => { currentAudio = null; resolve(); };
-    audio.onerror = () => { currentAudio = null; resolve(); };
-    audio.play().catch(() => { currentAudio = null; resolve(); });
+    let playingFired = false;
+    audio.addEventListener("playing", function handler() {
+      audio.removeEventListener("playing", handler);
+      if (!playingFired) {
+        playingFired = true;
+        log("[TTS] playing");
+        if (onPlaying) onPlaying();
+      }
+    });
+    audio.onended = () => { log("[TTS] ended"); currentAudio = null; resolve(); };
+    audio.onerror = (e) => { log(`[TTS] error: ${e?.message || "unknown"}`); currentAudio = null; resolve(); };
+    audio.play().catch((err) => { log(`[TTS] play() failed: ${err.message}`); currentAudio = null; resolve(); });
   });
 }
 
@@ -722,6 +800,13 @@ function showPoster(posterUrl) {
   const canvas = document.getElementById("poster-canvas");
   if (!canvas || !posterUrl) return;
   const ctx = canvas.getContext("2d");
+
+  if (preloadedImages.has(posterUrl)) {
+    log("[Poster] Using preloaded image");
+    ctx.drawImage(preloadedImages.get(posterUrl), 0, 0, canvas.width, canvas.height);
+    return;
+  }
+
   const img = new Image();
   img.crossOrigin = "anonymous";
   img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -861,8 +946,166 @@ function buildPlaybackQueue(master) {
   return queue;
 }
 
+// ── Preload Bulletin Assets ───────────────────
+async function preloadBulletin(master) {
+  const prepOverlay = document.getElementById("prep-overlay");
+  const prepBar = document.getElementById("prep-bar");
+  const prepStatus = document.getElementById("prep-status");
+  const prepDetail = document.getElementById("prep-detail");
+
+  prepOverlay.style.display = "flex";
+  prepBar.style.width = "0%";
+  prepStatus.textContent = "Preparing bulletin...";
+  prepDetail.textContent = "";
+
+  // Collect all URLs to preload
+  const ttsUrls = [];
+  const imageUrls = [];
+
+  (master.stories || []).forEach(story => {
+    if (story.ttsUrl) ttsUrls.push(story.ttsUrl);
+    if (story.posterUrl) imageUrls.push(story.posterUrl);
+  });
+  if (master.weather?.ttsUrl) ttsUrls.push(master.weather.ttsUrl);
+  if (master.assets?.studioBgUrl) imageUrls.push(master.assets.studioBgUrl);
+
+  const firstBumperUrl = master.assets?.bumperUrl;
+  const hasCfBumper = firstBumperUrl && isCfStreamUrl(firstBumperUrl);
+
+  // Total items: ttsUrls + imageUrls + (cfBumper ? 1 : 0) + bgMusic(1)
+  const totalItems = ttsUrls.length + imageUrls.length + (hasCfBumper ? 1 : 0) + 1;
+  let loadedItems = 0;
+
+  function updateProgress(detail) {
+    loadedItems++;
+    const pct = Math.round((loadedItems / totalItems) * 100);
+    prepBar.style.width = pct + "%";
+    prepDetail.textContent = detail;
+    log(`[Preload] (${loadedItems}/${totalItems}) ${detail}`);
+  }
+
+  // 1. Preload all TTS audio
+  prepStatus.textContent = "Loading audio...";
+  const ttsPromises = ttsUrls.map(url => {
+    return new Promise(resolve => {
+      const audio = new Audio();
+      audio.preload = "auto";
+      audio.addEventListener("canplaythrough", function handler() {
+        audio.removeEventListener("canplaythrough", handler);
+        preloadedAudio.set(url, audio);
+        updateProgress(`TTS audio ready`);
+        resolve();
+      }, { once: true });
+      audio.addEventListener("error", function handler() {
+        audio.removeEventListener("error", handler);
+        log(`[Preload] TTS audio failed: ${url.substring(0, 60)}`);
+        updateProgress(`TTS audio failed`);
+        resolve();
+      }, { once: true });
+      audio.src = url;
+      audio.load();
+    });
+  });
+  await Promise.all(ttsPromises);
+
+  // 2. Preload poster images + studio background
+  prepStatus.textContent = "Loading images...";
+  const imgPromises = imageUrls.map(url => {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        preloadedImages.set(url, img);
+        updateProgress(`Image ready`);
+        resolve();
+      };
+      img.onerror = () => {
+        log(`[Preload] Image failed: ${url.substring(0, 60)}`);
+        updateProgress(`Image failed`);
+        resolve();
+      };
+      img.src = url;
+    });
+  });
+  await Promise.all(imgPromises);
+
+  // 3. Pre-warm first CF iframe (bumper)
+  if (hasCfBumper) {
+    prepStatus.textContent = "Loading video player...";
+    await new Promise(resolve => {
+      const iframe = document.getElementById("cf-stream-player");
+      iframe.src = firstBumperUrl;
+      const cfTimeout = setTimeout(() => {
+        log("[Preload] CF pre-warm timeout (8s)");
+        updateProgress("Video player timeout");
+        resolve();
+      }, 8000);
+
+      iframe.addEventListener("load", () => {
+        try {
+          cfPlayer = Stream(iframe);
+          cfPlayer.muted = true;
+
+          const readyEvents = ["canplay", "loadeddata"];
+          let resolved = false;
+          readyEvents.forEach(evt => {
+            cfPlayer.addEventListener(evt, function handler() {
+              cfPlayer.removeEventListener(evt, handler);
+              if (!resolved) {
+                resolved = true;
+                clearTimeout(cfTimeout);
+                firstCfReady = true;
+                log(`[Preload] CF pre-warm ready via: ${evt}`);
+                updateProgress("Video player ready");
+                resolve();
+              }
+            });
+          });
+        } catch (err) {
+          log(`[Preload] CF SDK init error: ${err.message}`);
+          clearTimeout(cfTimeout);
+          updateProgress("Video player error");
+          resolve();
+        }
+      }, { once: true });
+    });
+  }
+
+  // 4. Preload background music
+  prepStatus.textContent = "Loading music...";
+  initBgMusic();
+  if (bgMusic) {
+    await new Promise(resolve => {
+      if (bgMusic.readyState >= 4) {
+        updateProgress("Music ready");
+        resolve();
+        return;
+      }
+      bgMusic.addEventListener("canplaythrough", function handler() {
+        bgMusic.removeEventListener("canplaythrough", handler);
+        updateProgress("Music ready");
+        resolve();
+      }, { once: true });
+      bgMusic.addEventListener("error", function handler() {
+        bgMusic.removeEventListener("error", handler);
+        updateProgress("Music failed");
+        resolve();
+      }, { once: true });
+      bgMusic.load();
+    });
+  } else {
+    updateProgress("No music element");
+  }
+
+  prepStatus.textContent = "Ready!";
+  prepBar.style.width = "100%";
+  log("[Preload] All assets loaded");
+  await new Promise(r => setTimeout(r, 400));
+  prepOverlay.style.display = "none";
+}
+
 // ── Play Bulletin ─────────────────────────────
-function playBulletin() {
+async function playBulletin() {
   if (!masterJson) return log("ERROR: Build the bulletin first");
 
   log("Starting bulletin playback...");
@@ -873,13 +1116,16 @@ function playBulletin() {
   log("Queue: " + playerQueue.length + " segments");
   playerQueue.forEach((seg, i) => log("  " + (i + 1) + ". [" + seg.type + "] " + seg.label));
 
-  initBgMusic();
+  activatePlayer();
+  document.getElementById("player-section").scrollIntoView({ behavior: "smooth" });
+
+  // Preload all assets before starting playback
+  await preloadBulletin(masterJson);
+
   if (bgMusic) {
     bgMusic.volume = 0.01;
     bgMusic.play().catch(() => log("  bg music autoplay blocked"));
   }
-  activatePlayer();
-  document.getElementById("player-section").scrollIntoView({ behavior: "smooth" });
   playNextSegment();
 }
 
@@ -960,6 +1206,9 @@ async function showStudioSegment(segment) {
   clearSubtitles();
   setBgMusicVolume(0.18, 800);
 
+  // Look-ahead: start loading next CF video while TTS plays
+  preloadNextCfSegment();
+
   overlay.style.display = "flex";
   if (segment.background) overlay.style.backgroundImage = `url(${segment.background})`;
 
@@ -984,11 +1233,15 @@ async function showStudioSegment(segment) {
     renderWeatherDisplay(segment.weather);
   }
 
-  if (segment.subtitles?.length) startSubtitleTimer(segment.subtitles);
-
-  // Play pre-generated TTS audio
+  // Play pre-generated TTS audio — subtitles start on actual playback, not before
   const ttsStart = Date.now();
-  await playTtsAudio(segment.ttsUrl);
+  await playTtsAudio(segment.ttsUrl, () => {
+    // onPlaying callback: audio has actually started — NOW start subtitles
+    if (segment.subtitles?.length) {
+      log("[Studio] TTS playing — starting subtitle timer");
+      startSubtitleTimer(segment.subtitles);
+    }
+  });
 
   const elapsed = Date.now() - ttsStart;
   if (elapsed < 2500) await new Promise(r => setTimeout(r, 2500 - elapsed));
@@ -996,6 +1249,22 @@ async function showStudioSegment(segment) {
   clearSubtitles();
 
   if (!playerPaused) { playerIndex++; playNextSegment(); }
+}
+
+// ── Look-ahead: preload next CF segment ───────
+function preloadNextCfSegment() {
+  for (let i = playerIndex + 1; i < playerQueue.length; i++) {
+    const seg = playerQueue[i];
+    if ((seg.type === "video" || seg.type === "bumper") && isCfStreamUrl(seg.src)) {
+      const iframe = document.getElementById("cf-stream-player");
+      if (iframe && iframe.src !== seg.src) {
+        log(`[CF] Look-ahead: preloading iframe for segment ${i + 1}`);
+        iframe.src = seg.src;
+        iframe.style.display = "none";
+      }
+      break;
+    }
+  }
 }
 
 // ── Pause / Resume ────────────────────────────
@@ -1028,6 +1297,26 @@ function togglePause() {
   }
 }
 
+// ── Skip to Next Segment ──────────────────────
+function skipToNextSegment() {
+  if (!playerQueue.length) return;
+  log(`[Skip] Skipping segment ${playerIndex + 1}`);
+
+  const video = document.getElementById("bulletin-video");
+  video.pause();
+  stopTTS();
+  clearSubtitles();
+  destroyCfPlayer();
+
+  playerIndex++;
+  if (playerIndex < playerQueue.length) {
+    playNextSegment();
+  } else {
+    log("Bulletin playback complete (skipped to end).");
+    stopPlayer();
+  }
+}
+
 // ── Stop Player ───────────────────────────────
 function stopPlayer() {
   const video = document.getElementById("bulletin-video");
@@ -1049,6 +1338,11 @@ function stopPlayer() {
   playerQueue = [];
   playerIndex = 0;
   playerPaused = false;
+
+  // Clear preload caches
+  preloadedAudio.clear();
+  preloadedImages.clear();
+  firstCfReady = false;
 
   deactivatePlayer();
   document.getElementById("player-segment-label").textContent = "Ready";
@@ -1095,9 +1389,12 @@ function showToast(title, body, type = "info") {
 function log(message) {
   const el = document.getElementById("event-log");
   if (!el) return;
+  const elapsed = ((performance.now() - LOG_START) / 1000).toFixed(1);
   const time = new Date().toLocaleTimeString();
-  el.textContent += `[${time}] ${message}\n`;
+  const line = `[${time} +${elapsed}s] ${message}`;
+  el.textContent += line + "\n";
   el.scrollTop = el.scrollHeight;
+  console.log(`[MockNews +${elapsed}s]`, message);
 }
 
 // ── Utilities ─────────────────────────────────
