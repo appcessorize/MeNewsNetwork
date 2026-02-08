@@ -674,38 +674,38 @@ function playCfVideo(src, muted, onReady, onEnded) {
 
   function attachSdkEvents(player) {
     cfPlayer = player;
-    cfPlayer.muted = muted;
+    player.muted = muted;
 
     const readyEvents = ["canplay", "loadeddata", "playing"];
     readyEvents.forEach(evt => {
-      cfPlayer.addEventListener(evt, function handler() {
-        cfPlayer.removeEventListener(evt, handler);
+      player.addEventListener(evt, function handler() {
+        try { player.removeEventListener(evt, handler); } catch {}
         fireReady(evt);
       });
     });
 
     let firstTimeUpdate = true;
-    cfPlayer.addEventListener("timeupdate", function handler() {
+    player.addEventListener("timeupdate", function handler() {
       if (firstTimeUpdate) {
         firstTimeUpdate = false;
         fireReady("timeupdate");
       }
     });
 
-    cfPlayer.addEventListener("ended", function handler() {
-      cfPlayer.removeEventListener("ended", handler);
+    player.addEventListener("ended", function handler() {
+      try { player.removeEventListener("ended", handler); } catch {}
       fireEnded("ended");
     });
 
-    cfPlayer.addEventListener("error", function handler(e) {
-      cfPlayer.removeEventListener("error", handler);
+    player.addEventListener("error", function handler(e) {
+      try { player.removeEventListener("error", handler); } catch {}
       log(`[CF] ERROR: ${e?.message || "unknown"}`);
       fireEnded("error");
     });
 
     // Log all events for debugging
     ["play", "pause", "waiting", "stalled", "suspend", "seeked"].forEach(evt => {
-      cfPlayer.addEventListener(evt, () => log(`[CF] event: ${evt}`));
+      player.addEventListener(evt, () => log(`[CF] event: ${evt}`));
     });
   }
 
@@ -715,10 +715,12 @@ function playCfVideo(src, muted, onReady, onEnded) {
     iframe.style.display = "block";
     attachSdkEvents(cfPlayer);
     cfPlayer.currentTime = 0;
-    cfPlayer.play().catch(err => log(`[CF] play() error: ${err.message}`));
+    cfPlayer.play().catch(err => log(`[CF] play() error: ${err?.message || err}`));
     return;
   }
 
+  // Force fresh load: remove old src first to guarantee load event fires
+  iframe.removeAttribute("src");
   iframe.src = src;
   log(`[CF] Loading iframe: ${src.substring(0, 80)}...`);
 
@@ -726,7 +728,7 @@ function playCfVideo(src, muted, onReady, onEnded) {
     log("[CF] iframe loaded, initializing SDK");
     const player = Stream(iframe);
     attachSdkEvents(player);
-    player.play().catch(err => log(`[CF] play() error: ${err.message}`));
+    player.play().catch(err => log(`[CF] play() error: ${err?.message || err}`));
   }, { once: true });
 }
 
@@ -1044,14 +1046,15 @@ async function preloadBulletin(master) {
 
       iframe.addEventListener("load", () => {
         try {
-          cfPlayer = Stream(iframe);
-          cfPlayer.muted = true;
+          const warmPlayer = Stream(iframe);
+          cfPlayer = warmPlayer;
+          warmPlayer.muted = true;
 
-          const readyEvents = ["canplay", "loadeddata"];
           let resolved = false;
+          const readyEvents = ["canplay", "loadeddata"];
           readyEvents.forEach(evt => {
-            cfPlayer.addEventListener(evt, function handler() {
-              cfPlayer.removeEventListener(evt, handler);
+            warmPlayer.addEventListener(evt, function handler() {
+              try { warmPlayer.removeEventListener(evt, handler); } catch {}
               if (!resolved) {
                 resolved = true;
                 clearTimeout(cfTimeout);
@@ -1063,7 +1066,7 @@ async function preloadBulletin(master) {
             });
           });
         } catch (err) {
-          log(`[Preload] CF SDK init error: ${err.message}`);
+          log(`[Preload] CF SDK init error: ${err?.message || err}`);
           clearTimeout(cfTimeout);
           updateProgress("Video player error");
           resolve();
@@ -1207,9 +1210,6 @@ async function showStudioSegment(segment) {
   clearSubtitles();
   setBgMusicVolume(0.18, 800);
 
-  // Look-ahead: start loading next CF video while TTS plays
-  preloadNextCfSegment();
-
   overlay.style.display = "flex";
   if (segment.background) overlay.style.backgroundImage = `url(${segment.background})`;
 
@@ -1250,22 +1250,6 @@ async function showStudioSegment(segment) {
   clearSubtitles();
 
   if (!playerPaused) { playerIndex++; playNextSegment(); }
-}
-
-// ── Look-ahead: preload next CF segment ───────
-function preloadNextCfSegment() {
-  for (let i = playerIndex + 1; i < playerQueue.length; i++) {
-    const seg = playerQueue[i];
-    if ((seg.type === "video" || seg.type === "bumper") && isCfStreamUrl(seg.src)) {
-      const iframe = document.getElementById("cf-stream-player");
-      if (iframe && iframe.src !== seg.src) {
-        log(`[CF] Look-ahead: preloading iframe for segment ${i + 1}`);
-        iframe.src = seg.src;
-        iframe.style.display = "none";
-      }
-      break;
-    }
-  }
 }
 
 // ── Pause / Resume ────────────────────────────
