@@ -12,6 +12,12 @@ module Cloudflare
         f.options.timeout = 30
         f.adapter Faraday.default_adapter
       end
+      @upload_conn = Faraday.new do |f|
+        f.request :multipart
+        f.options.timeout = 300
+        f.options.open_timeout = 30
+        f.adapter Faraday.default_adapter
+      end
     end
 
     def configured?
@@ -39,6 +45,33 @@ module Cloudflare
       result[:result]
     end
 
+    # Server-side upload: POST file directly to CF Stream
+    def upload_video(file_path, filename: "upload.mp4", content_type: "video/mp4")
+      file_part = Faraday::Multipart::FilePart.new(
+        file_path,
+        content_type,
+        filename
+      )
+
+      response = @upload_conn.post("#{BASE_URL}/accounts/#{@account_id}/stream") do |req|
+        req.headers["Authorization"] = "Bearer #{@api_token}"
+        req.body = { file: file_part }
+      end
+
+      result = JSON.parse(response.body, symbolize_names: true)
+      unless result[:success]
+        errors = result[:errors]&.map { |e| e[:message] }&.join(", ") || "unknown error"
+        raise "Cloudflare upload failed: #{errors}"
+      end
+
+      { uid: result[:result][:uid] }
+    end
+
+    def video_ready?(uid)
+      video = get_video(uid)
+      video.dig(:status, :state) == "ready"
+    end
+
     def get_video(uid)
       response = @conn.get("#{BASE_URL}/accounts/#{@account_id}/stream/#{uid}") do |req|
         req.headers["Authorization"] = "Bearer #{@api_token}"
@@ -52,6 +85,6 @@ module Cloudflare
 
     private
 
-    attr_reader :account_id, :api_token, :conn
+    attr_reader :account_id, :api_token, :conn, :upload_conn
   end
 end

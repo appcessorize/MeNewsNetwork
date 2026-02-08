@@ -22,6 +22,11 @@ module Gemini
         req.body = body.to_json
       end
 
+      unless response.success?
+        Rails.logger.error("[gemini] API error: HTTP #{response.status} — #{response.body&.first(500)}")
+        raise "Gemini API error: HTTP #{response.status}"
+      end
+
       JSON.parse(response.body, symbolize_names: true)
     end
 

@@ -27,10 +27,16 @@ module Gemini
         req.body = { file: { display_name: display_name } }.to_json
       end
 
+      unless init_response.success?
+        Rails.logger.error("[gemini] Upload init failed: HTTP #{init_response.status} — #{init_response.body&.first(500)}")
+        raise "Gemini upload init failed: HTTP #{init_response.status}"
+      end
+
       upload_url = init_response.headers["x-goog-upload-url"]
       raise "Failed to get upload URL from Gemini" unless upload_url
 
       # Step 2: Upload the actual bytes
+      Rails.logger.info("[gemini] Uploading #{(file_size / 1e6).round(1)} MB to Gemini...")
       file_data = File.binread(file_path)
       upload_response = @conn.post(upload_url) do |req|
         req.headers["X-Goog-Upload-Offset"] = "0"
@@ -39,6 +45,12 @@ module Gemini
         req.body = file_data
       end
 
+      unless upload_response.success?
+        Rails.logger.error("[gemini] Upload failed: HTTP #{upload_response.status} — #{upload_response.body&.first(500)}")
+        raise "Gemini upload failed: HTTP #{upload_response.status}"
+      end
+
+      Rails.logger.info("[gemini] Upload complete, parsing response...")
       JSON.parse(upload_response.body, symbolize_names: true)
     end
 
@@ -46,6 +58,11 @@ module Gemini
     def get_file(file_name)
       response = @conn.get("#{BASE_URL}/#{file_name}") do |req|
         req.params["key"] = @api_key
+      end
+
+      unless response.success?
+        Rails.logger.error("[gemini] get_file failed: HTTP #{response.status} — #{response.body&.first(500)}")
+        raise "Gemini get_file failed: HTTP #{response.status}"
       end
 
       JSON.parse(response.body, symbolize_names: true)
@@ -58,15 +75,25 @@ module Gemini
       end
     end
 
-    # Upload and poll until ACTIVE
+    # Upload and poll until ACTIVE (max 5 minutes)
+    MAX_POLL_SECONDS = 300
+
     def upload_and_wait(file_path, mime_type:, display_name:)
       result = upload_file(file_path, mime_type: mime_type, display_name: display_name)
       file = result[:file]
 
       Rails.logger.info("[gemini] File uploaded: #{file[:name]}, state: #{file[:state]}")
 
+      poll_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      polls = 0
+
       while file[:state] == "PROCESSING"
-        Rails.logger.info("[gemini] File still processing, waiting 3s...")
+        polls += 1
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - poll_start
+        if elapsed > MAX_POLL_SECONDS
+          raise "Gemini file processing timed out after #{elapsed.round}s (#{polls} polls). State still: #{file[:state]}"
+        end
+        Rails.logger.info("[gemini] File still processing (#{elapsed.round}s elapsed, poll ##{polls}), waiting 3s...")
         sleep(3)
         file = get_file(file[:name])
       end
@@ -75,7 +102,7 @@ module Gemini
         raise "File processing failed. State: #{file[:state]}"
       end
 
-      Rails.logger.info("[gemini] File is ACTIVE")
+      Rails.logger.info("[gemini] File is ACTIVE after #{polls} polls")
       file
     end
 

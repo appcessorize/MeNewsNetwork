@@ -253,7 +253,9 @@ function bindButtons() {
   document.getElementById("btn-player-stop")?.addEventListener("click", stopPlayer);
 }
 
-// ── Upload & Analyze (sequential, one video at a time) ───
+// ── Upload & Analyze (fire-and-forget + poll) ───
+let pollTimer = null;
+
 async function uploadAndAnalyze() {
   if (!collectedFiles.length) return;
 
@@ -273,6 +275,7 @@ async function uploadAndAnalyze() {
     if (!bulletinData.ok) {
       log("ERROR: " + bulletinData.error);
       showToast("Create Failed", bulletinData.error, "error");
+      setButtonLoading("btn-upload-videos", false);
       return;
     }
 
@@ -281,16 +284,15 @@ async function uploadAndAnalyze() {
     document.getElementById("upload-status").textContent = "Bulletin #" + bulletinId;
     document.getElementById("btn-fetch-weather").disabled = false;
 
-    // 2. Analyze each video sequentially
-    let doneCount = 0;
-    let failedCount = 0;
-
+    // 2. Upload each video (server returns immediately, analysis is background)
+    const fileMap = {}; // storyNumber -> filename
     for (let i = 0; i < collectedFiles.length; i++) {
       const file = collectedFiles[i];
       const storyNumber = i + 1;
       const userContext = buildContextString(getContext(file.name));
+      fileMap[storyNumber] = file.name;
 
-      // Show "analyzing" status for this video
+      // Show "uploading" status
       renderStoryStatus(statusList, {
         story_number: storyNumber,
         status: "analyzing",
@@ -300,7 +302,7 @@ async function uploadAndAnalyze() {
         error_message: null
       });
 
-      log(`[${storyNumber}/${collectedFiles.length}] Uploading & analyzing "${file.name}"...`);
+      log(`[${storyNumber}/${collectedFiles.length}] Uploading "${file.name}" (${(file.size / 1e6).toFixed(1)} MB)...`);
 
       try {
         const formData = new FormData();
@@ -312,39 +314,22 @@ async function uploadAndAnalyze() {
           method: "POST",
           headers: { "X-CSRF-Token": csrfToken() },
           body: formData,
-          signal: AbortSignal.timeout(600000) // 10 min timeout
+          signal: AbortSignal.timeout(120000) // 2 min upload timeout
         });
+
+        if (!resp.ok) {
+          const body = await resp.text();
+          throw new Error(`HTTP ${resp.status}: ${body.substring(0, 200)}`);
+        }
 
         const data = await resp.json();
         if (data.ok) {
-          doneCount++;
-          const story = data.story;
-          log(`[${storyNumber}/${collectedFiles.length}] ${story.story_emoji || "✅"} "${story.story_title}"`);
-          updateStoryStatus(statusList, storyNumber, {
-            story_number: storyNumber,
-            status: "done",
-            story_emoji: story.story_emoji,
-            story_title: story.story_title,
-            filename: file.name,
-            error_message: null
-          });
-          showToast("Story Analyzed", `${story.story_emoji} ${story.story_title}`, "success");
+          log(`[${storyNumber}] Uploaded — analyzing in background...`);
         } else {
-          failedCount++;
-          log(`[${storyNumber}/${collectedFiles.length}] FAILED: ${data.error}`);
-          updateStoryStatus(statusList, storyNumber, {
-            story_number: storyNumber,
-            status: "failed",
-            story_emoji: null,
-            story_title: null,
-            filename: file.name,
-            error_message: data.error
-          });
-          showToast("Analysis Failed", `Story ${storyNumber}: ${data.error}`, "error");
+          throw new Error(data.error);
         }
       } catch (err) {
-        failedCount++;
-        log(`[${storyNumber}/${collectedFiles.length}] FAILED: ${err.message}`);
+        log(`[${storyNumber}] Upload FAILED: ${err.message}`);
         updateStoryStatus(statusList, storyNumber, {
           story_number: storyNumber,
           status: "failed",
@@ -353,23 +338,72 @@ async function uploadAndAnalyze() {
           filename: file.name,
           error_message: err.message
         });
-        showToast("Analysis Failed", `Story ${storyNumber}: ${err.message}`, "error");
+        showToast("Upload Failed", `Story ${storyNumber}: ${err.message}`, "error");
       }
     }
 
-    // 3. All done — enable Build
-    log(`All stories processed: ${doneCount} done, ${failedCount} failed.`);
-    if (doneCount > 0) {
-      document.getElementById("btn-build").disabled = false;
-      showToast("All Analyzed", `${doneCount} stories ready to build`, "success");
-    }
+    // 3. Start polling for status updates
+    log("All videos uploaded. Polling for analysis results...");
+    startStatusPolling(statusList, fileMap);
 
   } catch (err) {
     log("Upload failed: " + err.message);
     showToast("Upload Failed", err.message, "error");
-  } finally {
     setButtonLoading("btn-upload-videos", false);
   }
+}
+
+function startStatusPolling(statusList, fileMap) {
+  if (pollTimer) clearInterval(pollTimer);
+
+  pollTimer = setInterval(async () => {
+    try {
+      const resp = await fetch(`/debug/mock_news/bulletins/${bulletinId}/status`);
+      const data = await resp.json();
+      if (!data.ok) return;
+
+      let allDone = true;
+      data.stories.forEach(s => {
+        const filename = fileMap[s.story_number] || "";
+        updateStoryStatus(statusList, s.story_number, {
+          story_number: s.story_number,
+          status: s.status,
+          story_emoji: s.story_emoji,
+          story_title: s.story_title,
+          filename: filename,
+          error_message: s.error_message
+        });
+
+        if (s.status === "analyzing") allDone = false;
+      });
+
+      if (allDone) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        setButtonLoading("btn-upload-videos", false);
+
+        const doneCount = data.stories_done;
+        const failedCount = data.stories_failed;
+        log(`All stories processed: ${doneCount} done, ${failedCount} failed.`);
+
+        if (doneCount > 0) {
+          document.getElementById("btn-build").disabled = false;
+          showToast("All Analyzed", `${doneCount} stories ready to build`, "success");
+        }
+
+        // Show toast for each completed story
+        data.stories.forEach(s => {
+          if (s.status === "done") {
+            showToast("Story Analyzed", `${s.story_emoji || "✅"} ${s.story_title}`, "success");
+          } else if (s.status === "failed") {
+            showToast("Analysis Failed", `Story ${s.story_number}: ${s.error_message}`, "error");
+          }
+        });
+      }
+    } catch (err) {
+      log("Polling error: " + err.message);
+    }
+  }, 3000);
 }
 
 // ── Story status rendering helpers ───────────
@@ -819,10 +853,21 @@ function playBumperSegment(segment) {
   video.muted = true; // bumper video muted, music provides audio
   video.onended = () => { playerIndex++; playNextSegment(); };
   video.onerror = () => { log("Bumper error, skipping..."); playerIndex++; playNextSegment(); };
-  video.play().catch(() => { playerIndex++; playNextSegment(); });
+  video.oncanplay = () => {
+    video.oncanplay = null;
+    video.play().catch(err => {
+      log("Bumper play failed: " + err.message);
+      playerIndex++;
+      playNextSegment();
+    });
+  };
+  video.load();
 }
 
-// ── Video Segment (bg music off) ──────────────
+// ── HLS.js instance (cleaned up on stop) ─────
+let activeHls = null;
+
+// ── Video Segment (bg music off, HLS.js for .m3u8) ──────────────
 function playVideoSegment(segment) {
   const video = document.getElementById("bulletin-video");
   const overlay = document.getElementById("studio-overlay");
@@ -831,22 +876,78 @@ function playVideoSegment(segment) {
   video.style.display = "block";
   clearSubtitles();
   stopTTS();
+  destroyHls();
 
   // Silence bg music during user video
   setBgMusicVolume(0, 500);
 
-  video.src = segment.src;
+  const isHls = segment.src && segment.src.endsWith(".m3u8");
+
   video.muted = false;
   video.onended = () => { playerIndex++; playNextSegment(); };
   video.onerror = () => {
     log("Video error: " + segment.label + ", skipping...");
-    playerIndex++; playNextSegment();
+    playerIndex++;
+    playNextSegment();
   };
-  video.play().catch(err => {
-    log("Autoplay blocked, trying muted: " + err.message);
-    video.muted = true;
-    video.play().catch(() => { playerIndex++; playNextSegment(); });
-  });
+
+  if (isHls) {
+    // Safari has native HLS support
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = segment.src;
+      video.oncanplay = () => {
+        video.oncanplay = null;
+        video.play().catch(err => {
+          log("Autoplay blocked, trying muted: " + err.message);
+          video.muted = true;
+          video.play().catch(() => { playerIndex++; playNextSegment(); });
+        });
+      };
+      video.load();
+    } else if (typeof Hls !== "undefined" && Hls.isSupported()) {
+      activeHls = new Hls();
+      activeHls.loadSource(segment.src);
+      activeHls.attachMedia(video);
+      activeHls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(err => {
+          log("Autoplay blocked, trying muted: " + err.message);
+          video.muted = true;
+          video.play().catch(() => { playerIndex++; playNextSegment(); });
+        });
+      });
+      activeHls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          log("HLS fatal error: " + data.type + ", skipping...");
+          destroyHls();
+          playerIndex++;
+          playNextSegment();
+        }
+      });
+    } else {
+      log("HLS not supported, skipping: " + segment.label);
+      playerIndex++;
+      playNextSegment();
+    }
+  } else {
+    // Direct MP4 path
+    video.src = segment.src;
+    video.oncanplay = () => {
+      video.oncanplay = null;
+      video.play().catch(err => {
+        log("Autoplay blocked, trying muted: " + err.message);
+        video.muted = true;
+        video.play().catch(() => { playerIndex++; playNextSegment(); });
+      });
+    };
+    video.load();
+  }
+}
+
+function destroyHls() {
+  if (activeHls) {
+    activeHls.destroy();
+    activeHls = null;
+  }
 }
 
 // ── Studio Segment (TTS + bg music low) ───────
@@ -882,6 +983,16 @@ async function showStudioSegment(segment) {
     storyContent.style.display = "none";
     weatherContent.style.display = "flex";
     renderWeatherDisplay(segment.weather);
+  }
+
+  // Preload the next video segment while TTS plays
+  const nextSeg = playerQueue[playerIndex + 1];
+  if (nextSeg && (nextSeg.type === "video" || nextSeg.type === "bumper")) {
+    const preload = document.createElement("link");
+    preload.rel = "preload";
+    preload.as = "video";
+    preload.href = nextSeg.src;
+    document.head.appendChild(preload);
   }
 
   // Start subtitles (timed from Gemini's estimated reading pace)
@@ -943,6 +1054,7 @@ function togglePause() {
 // ── Stop Player ───────────────────────────────
 function stopPlayer() {
   const video = document.getElementById("bulletin-video");
+  destroyHls();
   video.pause();
   video.removeAttribute("src");
   video.load();

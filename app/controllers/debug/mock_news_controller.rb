@@ -29,7 +29,7 @@ module Debug
     end
 
     # POST /debug/mock_news/bulletins/:id/stories
-    # Receives ONE video, analyzes synchronously via Gemini, enqueues storage
+    # Receives ONE video, stages it, enqueues background analysis job, returns immediately
     def analyze_story
       bulletin = DebugBulletin.find(params[:id])
 
@@ -58,70 +58,25 @@ module Debug
         content_type: video.content_type
       )
 
-      Rails.logger.info("[debug_news] Analyzing story ##{story.story_number} (id=#{story.id}, #{(video.size / 1e6).round(1)} MB)")
-
-      # 1. Upload to Gemini File API
-      file_manager = Gemini::FileManager.new
-      gemini_file = file_manager.upload_and_wait(
-        video.tempfile.path,
-        mime_type: video.content_type,
-        display_name: "debug_story_#{story.story_number}"
-      )
-
-      # 2. Generate analysis with Gemini
-      Rails.logger.info("[debug_news] File ACTIVE, running analysis prompt...")
-      generator = Gemini::ContentGenerator.new
-      prompt = DebugNews::PromptBuilder.story_analysis_prompt(
-        story_number: story.story_number,
-        user_context: story.user_context
-      )
-
-      result = generator.generate_with_file(
-        file_uri: gemini_file[:uri],
-        file_mime_type: gemini_file[:mimeType],
-        prompt: prompt,
-        temperature: 0.3,
-        json_response: true
-      )
-
-      # 3. Parse and store results
-      parsed = JSON.parse(result[:text], symbolize_names: true)
-      Rails.logger.info("[debug_news] Got title=#{parsed[:storyTitle]}, emoji=#{parsed[:storyEmoji]}")
-
-      story.update!(
-        gemini_json: parsed,
-        story_title: parsed[:storyTitle],
-        story_emoji: parsed[:storyEmoji],
-        intro_text: parsed[:introText],
-        subtitle_segments: parsed[:subtitleSegments],
-        status: "done",
-        error_message: nil
-      )
-
-      # 4. Copy temp file to staging dir for background storage job
+      # Copy tempfile to staging dir (tempfile is deleted after request ends)
       FileUtils.mkdir_p(STAGING_DIR)
       staging_path = STAGING_DIR.join("story_#{story.id}#{File.extname(video.original_filename)}")
       FileUtils.cp(video.tempfile.path, staging_path)
       story.update!(temp_file_path: staging_path.to_s)
 
-      # 5. Enqueue background ActiveStorage attach
-      StoreDebugVideoJob.perform_later(story.id)
+      Rails.logger.info("[debug_news] Story ##{story.story_number} staged (#{(video.size / 1e6).round(1)} MB), enqueuing job")
 
-      # 6. Clean up Gemini file
-      file_manager.delete_file(gemini_file[:name])
-      Rails.logger.info("[debug_news] Story ##{story.story_number} analyzed, storage job enqueued")
+      # Fire-and-forget: analysis + CF upload happens in background
+      AnalyzeDebugStoryJob.perform_later(story.id)
 
       render json: {
         ok: true,
         story: {
           id: story.id,
           story_number: story.story_number,
-          story_title: story.story_title,
-          story_emoji: story.story_emoji,
-          intro_text: story.intro_text,
           status: story.status
         }
-      }
+      }, status: :accepted
     rescue => e
       Rails.logger.error("[debug_news] analyze_story failed: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
       story&.update(status: "failed", error_message: e.message) if story&.persisted?
@@ -190,7 +145,9 @@ module Debug
           status: s.status,
           story_title: s.story_title,
           story_emoji: s.story_emoji,
-          error_message: s.error_message
+          intro_text: s.intro_text,
+          error_message: s.error_message,
+          video_ready: s.cloudflare_stream_uid.present? || s.temp_file_path.present?
         }
       end
 
@@ -260,7 +217,15 @@ module Debug
     end
 
     def assemble_master_json(bulletin)
+      customer_code = Rails.configuration.x.cloudflare.customer_code
+
       stories_data = bulletin.debug_stories.where(status: "done").order(:story_number).map do |story|
+        video_url = if story.cloudflare_stream_uid.present? && customer_code.present?
+                      "https://customer-#{customer_code}.cloudflarestream.com/#{story.cloudflare_stream_uid}/manifest/video.m3u8"
+                    else
+                      "/debug/mock_news/stories/#{story.id}/video"
+                    end
+
         {
           storyId: story.id,
           storyNumber: story.story_number,
@@ -270,7 +235,7 @@ module Debug
           studioHeadline: story.gemini_json&.dig("studioHeadline") || story.story_title&.upcase,
           introText: story.intro_text,
           subtitleSegments: story.subtitle_segments,
-          videoUrl: "/debug/mock_news/stories/#{story.id}/video",
+          videoUrl: video_url,
           ttsUrl: nil
         }
       end
