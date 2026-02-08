@@ -1051,6 +1051,7 @@ async function playBulletin() {
   await prepareBulletin();
   log("Preparation complete — starting playback.");
   hidePreparationScreen();
+  log("  [overlay] prep=hidden, studio=" + document.getElementById("studio-overlay").style.display);
 
   playNextSegment();
 }
@@ -1072,6 +1073,10 @@ function playNextSegment() {
   document.getElementById("player-segment-label").textContent =
     `[${playerIndex + 1}/${playerQueue.length}] ${segment.label}`;
   log("Segment " + (playerIndex + 1) + ": " + segment.label);
+  log("  [overlay] prep=" + document.getElementById("prep-overlay").style.display +
+      " studio=" + document.getElementById("studio-overlay").style.display +
+      " video=" + document.getElementById("bulletin-video").style.display +
+      " readyState=" + document.getElementById("bulletin-video").readyState);
 
   if (segment.type === "bumper") {
     playBumperSegment(segment);
@@ -1097,20 +1102,28 @@ function playBumperSegment(segment) {
 
   video.muted = true;
 
+  log("  [bumper] src=" + (segment.src || "none").substring(0, 80));
+  log("  [bumper] video.readyState=" + video.readyState + " video.src=" + (video.src || "none").substring(0, 60));
+  log("  [bumper] overlay=" + overlay.style.display + " prep=" + document.getElementById("prep-overlay").style.display);
+
   // Ready gate: only hide overlay and show video when bumper can play
   const showVideoWhenReady = () => {
+    log("  [bumper] showVideoWhenReady fired — hiding overlay, showing video");
     overlay.style.display = "none";
     video.style.display = "block";
   };
-  video.onended = () => { playerIndex++; playNextSegment(); };
-  video.onerror = () => { log("Bumper error, skipping..."); playerIndex++; playNextSegment(); };
+  video.onended = () => { log("  [bumper] onended"); playerIndex++; playNextSegment(); };
+  video.onerror = (e) => { log("Bumper error: " + (e?.message || "unknown") + ", skipping..."); playerIndex++; playNextSegment(); };
 
   const isHls = segment.src && segment.src.endsWith(".m3u8");
+  log("  [bumper] isHls=" + isHls + " activeHls=" + !!activeHls);
 
   // Check if this source is already loaded (preloaded during studio TTS)
   const alreadyLoaded = activeHls
     ? activeHls._loadedUrl === segment.src
     : video.src && video.src === segment.src;
+
+  log("  [bumper] alreadyLoaded=" + alreadyLoaded + " readyState=" + video.readyState);
 
   if (alreadyLoaded && video.readyState >= 2) {
     log("  Bumper already buffered, playing immediately");
@@ -1196,16 +1209,21 @@ function playVideoSegment(segment) {
   // Silence bg music during user video
   setBgMusicVolume(0, 500);
 
+  log("  [video] src=" + (segment.src || "none").substring(0, 80));
+  log("  [video] overlay=" + overlay.style.display + " prep=" + document.getElementById("prep-overlay").style.display);
+  log("  [video] video.readyState=" + video.readyState + " activeHls=" + !!activeHls);
+
   video.muted = false;
-  video.onended = () => { playerIndex++; playNextSegment(); };
-  video.onerror = () => {
-    log("Video error: " + segment.label + ", skipping...");
+  video.onended = () => { log("  [video] onended"); playerIndex++; playNextSegment(); };
+  video.onerror = (e) => {
+    log("Video error: " + segment.label + " (" + (e?.message || "unknown") + "), skipping...");
     playerIndex++;
     playNextSegment();
   };
 
   // Ready gate: only hide overlay and show video when it can play
   const showVideoWhenReady = () => {
+    log("  [video] showVideoWhenReady fired — hiding overlay, showing video");
     overlay.style.display = "none";
     video.style.display = "block";
   };
@@ -1216,6 +1234,8 @@ function playVideoSegment(segment) {
   const alreadyLoaded = activeHls
     ? activeHls._loadedUrl === segment.src
     : video.src && video.src === segment.src;
+
+  log("  [video] alreadyLoaded=" + alreadyLoaded + " isHls=" + isHls);
 
   if (alreadyLoaded && video.readyState >= 2) {
     log("  Video already buffered, playing immediately");
@@ -1287,6 +1307,7 @@ function playVideoSegment(segment) {
 
 function destroyHls() {
   if (activeHls) {
+    log("  [hls] destroying activeHls (url=" + (activeHls._loadedUrl || "?").substring(0, 60) + ")");
     activeHls.destroy();
     activeHls = null;
   }
@@ -1299,6 +1320,8 @@ async function showStudioSegment(segment) {
   const storyContent = document.getElementById("studio-story-content");
   const weatherContent = document.getElementById("studio-weather-content");
 
+  log("  [studio] mode=" + segment.mode + " overlay=" + overlay.style.display + " prep=" + document.getElementById("prep-overlay").style.display);
+
   video.pause();
   video.removeAttribute("src");
   video.style.display = "none";
@@ -1310,6 +1333,7 @@ async function showStudioSegment(segment) {
   // Setup overlay
   overlay.style.display = "flex";
   if (segment.background) overlay.style.backgroundImage = `url(${segment.background})`;
+  log("  [studio] overlay now=" + overlay.style.display + " bg=" + (segment.background ? "yes" : "no"));
 
   if (segment.mode === "story") {
     storyContent.style.display = "flex";
@@ -1374,6 +1398,7 @@ async function showStudioSegment(segment) {
   // Ensure minimum display time (4s) even if TTS is very fast/unavailable
   const elapsed = Date.now() - ttsStart;
   const minDuration = 4000;
+  log("  [studio] TTS done in " + elapsed + "ms, min=" + minDuration);
   if (elapsed < minDuration) {
     await new Promise(r => setTimeout(r, minDuration - elapsed));
   }
@@ -1381,6 +1406,8 @@ async function showStudioSegment(segment) {
   clearSubtitles();
 
   // Advance to next segment (unless paused/stopped)
+  log("  [studio] advancing — paused=" + playerPaused + " idx=" + playerIndex + " queueLen=" + playerQueue.length);
+  log("  [studio] video.readyState=" + video.readyState + " activeHls=" + !!activeHls);
   if (!playerPaused && playerIndex < playerQueue.length) {
     playerIndex++;
     playNextSegment();
