@@ -292,10 +292,11 @@ async function uploadAndAnalyze() {
       const userContext = buildContextString(getContext(file.name));
       fileMap[storyNumber] = file.name;
 
-      // Show "uploading" status
+      // Show "uploading" status with 0%
       renderStoryStatus(statusList, {
         story_number: storyNumber,
-        status: "analyzing",
+        status: "uploading",
+        uploadPct: 0,
         story_emoji: null,
         story_title: null,
         filename: file.name,
@@ -310,21 +311,32 @@ async function uploadAndAnalyze() {
         formData.append("story_number", storyNumber);
         if (userContext) formData.append("user_context", userContext);
 
-        const resp = await fetch(`/debug/mock_news/bulletins/${bulletinId}/stories`, {
-          method: "POST",
-          headers: { "X-CSRF-Token": csrfToken() },
-          body: formData,
-          signal: AbortSignal.timeout(120000) // 2 min upload timeout
-        });
+        const data = await uploadWithProgress(
+          `/debug/mock_news/bulletins/${bulletinId}/stories`,
+          formData,
+          (pct) => {
+            updateStoryStatus(statusList, storyNumber, {
+              story_number: storyNumber,
+              status: "uploading",
+              uploadPct: pct,
+              story_emoji: null,
+              story_title: null,
+              filename: file.name,
+              error_message: null
+            });
+          }
+        );
 
-        if (!resp.ok) {
-          const body = await resp.text();
-          throw new Error(`HTTP ${resp.status}: ${body.substring(0, 200)}`);
-        }
-
-        const data = await resp.json();
         if (data.ok) {
           log(`[${storyNumber}] Uploaded — analyzing in background...`);
+          updateStoryStatus(statusList, storyNumber, {
+            story_number: storyNumber,
+            status: "analyzing",
+            story_emoji: null,
+            story_title: null,
+            filename: file.name,
+            error_message: null
+          });
         } else {
           throw new Error(data.error);
         }
@@ -406,6 +418,40 @@ function startStatusPolling(statusList, fileMap) {
   }, 3000);
 }
 
+// ── Upload with progress (XHR for upload events) ──
+function uploadWithProgress(url, formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.setRequestHeader("X-CSRF-Token", csrfToken());
+    xhr.timeout = 600000; // 10 minutes
+
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error("Invalid JSON response"));
+        }
+      } else {
+        reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText.substring(0, 200)}`));
+      }
+    });
+
+    xhr.addEventListener("error", () => reject(new Error("Network error")));
+    xhr.addEventListener("timeout", () => reject(new Error("Upload timed out (10 min)")));
+    xhr.addEventListener("abort", () => reject(new Error("Upload aborted")));
+
+    xhr.send(formData);
+  });
+}
+
 // ── Story status rendering helpers ───────────
 function renderStoryStatus(container, s) {
   const div = document.createElement("div");
@@ -423,14 +469,25 @@ function updateStoryStatus(container, storyNumber, s) {
 }
 
 function storyStatusHtml(s) {
-  const bc = { pending: "badge-ghost", analyzing: "badge-warning", done: "badge-success", failed: "badge-error" }[s.status] || "badge-ghost";
-  const spinner = s.status === "analyzing" ? '<span class="loading loading-spinner loading-xs"></span>' : '';
+  const bc = { pending: "badge-ghost", uploading: "badge-info", analyzing: "badge-warning", done: "badge-success", failed: "badge-error" }[s.status] || "badge-ghost";
+  const spinner = (s.status === "analyzing" || s.status === "uploading") ? '<span class="loading loading-spinner loading-xs"></span>' : '';
+  const statusLabel = s.status === "uploading" ? `uploading ${s.uploadPct || 0}%` : s.status;
+  const titleText = s.status === "uploading" ? "Uploading..." : (s.story_title || "Analyzing...");
+
+  let progressBar = "";
+  if (s.status === "uploading") {
+    progressBar = `<div class="w-full bg-base-300 rounded-full h-1.5 mt-1">
+      <div class="h-full bg-info rounded-full transition-all duration-300" style="width: ${s.uploadPct || 0}%"></div>
+    </div>`;
+  }
+
   return `
-    <span class="badge ${bc} badge-sm gap-1">${spinner}${s.status}</span>
+    <span class="badge ${bc} badge-sm gap-1">${spinner}${statusLabel}</span>
     <span class="text-sm flex-1">
       ${s.story_emoji || "📹"} Story ${s.story_number}:
-      <strong>${escapeHtml(s.story_title || "Analyzing...")}</strong>
+      <strong>${escapeHtml(titleText)}</strong>
       ${s.filename ? `<span class="text-xs text-base-content/40">(${escapeHtml(s.filename)})</span>` : ""}
+      ${progressBar}
     </span>
     ${s.error_message ? `<span class="text-xs text-error max-w-xs truncate">${escapeHtml(s.error_message)}</span>` : ""}
   `;
@@ -995,6 +1052,7 @@ function buildPlaybackQueue(master) {
       queue.push({
         type: "video",
         src: story.videoUrl,
+        headline: story.studioHeadline || story.storyTitle,
         label: "Video: " + (story.storyTitle || "Story " + story.storyNumber)
       });
     }
@@ -1050,8 +1108,6 @@ async function playBulletin() {
   log("Preparing bulletin (preloading TTS, posters, first video)...");
   await prepareBulletin();
   log("Preparation complete — starting playback.");
-  hidePreparationScreen();
-  log("  [overlay] prep=hidden, studio=" + document.getElementById("studio-overlay").style.display);
 
   playNextSegment();
 }
@@ -1073,10 +1129,6 @@ function playNextSegment() {
   document.getElementById("player-segment-label").textContent =
     `[${playerIndex + 1}/${playerQueue.length}] ${segment.label}`;
   log("Segment " + (playerIndex + 1) + ": " + segment.label);
-  log("  [overlay] prep=" + document.getElementById("prep-overlay").style.display +
-      " studio=" + document.getElementById("studio-overlay").style.display +
-      " video=" + document.getElementById("bulletin-video").style.display +
-      " readyState=" + document.getElementById("bulletin-video").readyState);
 
   if (segment.type === "bumper") {
     playBumperSegment(segment);
@@ -1102,31 +1154,28 @@ function playBumperSegment(segment) {
 
   video.muted = true;
 
-  log("  [bumper] src=" + (segment.src || "none").substring(0, 80));
-  log("  [bumper] video.readyState=" + video.readyState + " video.src=" + (video.src || "none").substring(0, 60));
-  log("  [bumper] overlay=" + overlay.style.display + " prep=" + document.getElementById("prep-overlay").style.display);
+  // Show studio overlay as visual hold (hides black video element)
+  overlay.style.display = "flex";
+  document.getElementById("studio-story-content").style.display = "none";
+  document.getElementById("studio-weather-content").style.display = "none";
 
-  // Ready gate: only hide overlay and show video when bumper can play
+  // Ready gate: hide all overlays and show video when bumper can play
   const showVideoWhenReady = () => {
-    log("  [bumper] showVideoWhenReady fired — hiding overlay, showing video");
+    hidePreparationScreen();
     overlay.style.display = "none";
     video.style.display = "block";
   };
-  video.onended = () => { log("  [bumper] onended"); playerIndex++; playNextSegment(); };
+  video.onended = () => { playerIndex++; playNextSegment(); };
   video.onerror = (e) => { log("Bumper error: " + (e?.message || "unknown") + ", skipping..."); playerIndex++; playNextSegment(); };
 
   const isHls = segment.src && segment.src.endsWith(".m3u8");
-  log("  [bumper] isHls=" + isHls + " activeHls=" + !!activeHls);
 
   // Check if this source is already loaded (preloaded during studio TTS)
   const alreadyLoaded = activeHls
     ? activeHls._loadedUrl === segment.src
     : video.src && video.src === segment.src;
 
-  log("  [bumper] alreadyLoaded=" + alreadyLoaded + " readyState=" + video.readyState);
-
   if (alreadyLoaded && video.readyState >= 2) {
-    log("  Bumper already buffered, playing immediately");
     showVideoWhenReady();
     video.play().catch(err => {
       log("Bumper play failed: " + err.message);
@@ -1136,12 +1185,37 @@ function playBumperSegment(segment) {
     return;
   }
 
-  // Load on demand
+  if (alreadyLoaded) {
+    // Preloaded but not fully buffered — wait for it (don't destroy!)
+    log("  Bumper preloaded but buffering (readyState=" + video.readyState + "), waiting...");
+    const onReady = () => {
+      video.removeEventListener("canplay", onReady);
+      clearTimeout(fallback);
+      showVideoWhenReady();
+      video.play().catch(err => {
+        log("Bumper play failed: " + err.message);
+        playerIndex++;
+        playNextSegment();
+      });
+    };
+    const fallback = setTimeout(() => {
+      video.removeEventListener("canplay", onReady);
+      showVideoWhenReady();
+      video.play().catch(err => {
+        log("Bumper play failed (timeout): " + err.message);
+        playerIndex++;
+        playNextSegment();
+      });
+    }, 8000);
+    video.addEventListener("canplay", onReady, { once: true });
+    return;
+  }
+
+  // Not preloaded at all — load on demand
   destroyHls();
 
   if (isHls) {
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Safari native HLS
       video.src = segment.src;
       video.oncanplay = () => {
         video.oncanplay = null;
@@ -1180,7 +1254,6 @@ function playBumperSegment(segment) {
       playNextSegment();
     }
   } else {
-    // MP4 or other direct source
     video.src = segment.src;
     video.oncanplay = () => {
       video.oncanplay = null;
@@ -1193,6 +1266,15 @@ function playBumperSegment(segment) {
     };
     video.load();
   }
+
+  // Fallback timeout: if video still hasn't loaded after 8s, force show
+  setTimeout(() => {
+    if (overlay.style.display !== "none" || document.getElementById("prep-overlay").style.display !== "none") {
+      log("  Bumper load timeout — forcing playback");
+      showVideoWhenReady();
+      video.play().catch(() => { playerIndex++; playNextSegment(); });
+    }
+  }, 8000);
 }
 
 // ── HLS.js instance (cleaned up on stop) ─────
@@ -1209,12 +1291,11 @@ function playVideoSegment(segment) {
   // Silence bg music during user video
   setBgMusicVolume(0, 500);
 
-  log("  [video] src=" + (segment.src || "none").substring(0, 80));
-  log("  [video] overlay=" + overlay.style.display + " prep=" + document.getElementById("prep-overlay").style.display);
-  log("  [video] video.readyState=" + video.readyState + " activeHls=" + !!activeHls);
+  // Show ticker with headline during video playback
+  showTicker(segment.headline);
 
   video.muted = false;
-  video.onended = () => { log("  [video] onended"); playerIndex++; playNextSegment(); };
+  video.onended = () => { playerIndex++; playNextSegment(); };
   video.onerror = (e) => {
     log("Video error: " + segment.label + " (" + (e?.message || "unknown") + "), skipping...");
     playerIndex++;
@@ -1223,7 +1304,6 @@ function playVideoSegment(segment) {
 
   // Ready gate: only hide overlay and show video when it can play
   const showVideoWhenReady = () => {
-    log("  [video] showVideoWhenReady fired — hiding overlay, showing video");
     overlay.style.display = "none";
     video.style.display = "block";
   };
@@ -1235,10 +1315,7 @@ function playVideoSegment(segment) {
     ? activeHls._loadedUrl === segment.src
     : video.src && video.src === segment.src;
 
-  log("  [video] alreadyLoaded=" + alreadyLoaded + " isHls=" + isHls);
-
   if (alreadyLoaded && video.readyState >= 2) {
-    log("  Video already buffered, playing immediately");
     showVideoWhenReady();
     video.play().catch(err => {
       log("Autoplay blocked, trying muted: " + err.message);
@@ -1248,7 +1325,33 @@ function playVideoSegment(segment) {
     return;
   }
 
-  // Load on demand (studio overlay stays visible as hold frame until ready)
+  if (alreadyLoaded) {
+    // Preloaded but not fully buffered — wait for it (don't destroy!)
+    log("  Video preloaded but buffering (readyState=" + video.readyState + "), waiting...");
+    const onReady = () => {
+      video.removeEventListener("canplay", onReady);
+      clearTimeout(fallback);
+      showVideoWhenReady();
+      video.play().catch(err => {
+        log("Autoplay blocked, trying muted: " + err.message);
+        video.muted = true;
+        video.play().catch(() => { playerIndex++; playNextSegment(); });
+      });
+    };
+    const fallback = setTimeout(() => {
+      video.removeEventListener("canplay", onReady);
+      showVideoWhenReady();
+      video.play().catch(err => {
+        log("Video play failed (timeout): " + err.message);
+        video.muted = true;
+        video.play().catch(() => { playerIndex++; playNextSegment(); });
+      });
+    }, 5000);
+    video.addEventListener("canplay", onReady, { once: true });
+    return;
+  }
+
+  // Not preloaded at all — load on demand (studio overlay stays visible as hold frame)
   destroyHls();
 
   if (isHls) {
@@ -1307,7 +1410,6 @@ function playVideoSegment(segment) {
 
 function destroyHls() {
   if (activeHls) {
-    log("  [hls] destroying activeHls (url=" + (activeHls._loadedUrl || "?").substring(0, 60) + ")");
     activeHls.destroy();
     activeHls = null;
   }
@@ -1320,7 +1422,8 @@ async function showStudioSegment(segment) {
   const storyContent = document.getElementById("studio-story-content");
   const weatherContent = document.getElementById("studio-weather-content");
 
-  log("  [studio] mode=" + segment.mode + " overlay=" + overlay.style.display + " prep=" + document.getElementById("prep-overlay").style.display);
+  hidePreparationScreen();
+  hideTicker();
 
   video.pause();
   video.removeAttribute("src");
@@ -1333,12 +1436,10 @@ async function showStudioSegment(segment) {
   // Setup overlay
   overlay.style.display = "flex";
   if (segment.background) overlay.style.backgroundImage = `url(${segment.background})`;
-  log("  [studio] overlay now=" + overlay.style.display + " bg=" + (segment.background ? "yes" : "no"));
 
   if (segment.mode === "story") {
     storyContent.style.display = "flex";
     weatherContent.style.display = "none";
-    showTicker(segment.headline);
 
     document.getElementById("studio-emoji").textContent = segment.emoji || "";
     document.getElementById("studio-headline").textContent = segment.headline || "";
@@ -1357,7 +1458,6 @@ async function showStudioSegment(segment) {
   } else if (segment.mode === "weather") {
     storyContent.style.display = "none";
     weatherContent.style.display = "flex";
-    showTicker("Weather Report");
     renderWeatherDisplay(segment.weather);
   }
 
@@ -1395,10 +1495,9 @@ async function showStudioSegment(segment) {
 
   await speakText(segment.introText, playerIndex);
 
-  // Ensure minimum display time (4s) even if TTS is very fast/unavailable
+  // Ensure minimum display time even if TTS is very fast/unavailable
   const elapsed = Date.now() - ttsStart;
-  const minDuration = 4000;
-  log("  [studio] TTS done in " + elapsed + "ms, min=" + minDuration);
+  const minDuration = 2500;
   if (elapsed < minDuration) {
     await new Promise(r => setTimeout(r, minDuration - elapsed));
   }
@@ -1406,8 +1505,6 @@ async function showStudioSegment(segment) {
   clearSubtitles();
 
   // Advance to next segment (unless paused/stopped)
-  log("  [studio] advancing — paused=" + playerPaused + " idx=" + playerIndex + " queueLen=" + playerQueue.length);
-  log("  [studio] video.readyState=" + video.readyState + " activeHls=" + !!activeHls);
   if (!playerPaused && playerIndex < playerQueue.length) {
     playerIndex++;
     playNextSegment();
