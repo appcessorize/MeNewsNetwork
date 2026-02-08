@@ -74,13 +74,6 @@ Rails.application.routes.draw do
     post "chat/followup",  to: "chat#followup"
     post "chat/generate",  to: "chat#generate"
 
-    # Stories (text, voice notes, images)
-    # Web Push
-    post "push/subscribe", to: "push#subscribe"
-    post "push/send",      to: "push#send_now"
-    post "push/schedule",  to: "push#schedule"
-    get  "push/vapid_key", to: "push#vapid_key"
-
     # Email
     post "email/test",     to: "email#test"
 

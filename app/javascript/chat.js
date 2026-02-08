@@ -797,7 +797,7 @@ async function suggestCommenters(storyId) {
 async function handleCommentersSelected(memberIds, storyId) {
   if (memberIds.length > 0) {
     await appendBotMessage(`Great! I'll let ${memberIds.length} group member${memberIds.length > 1 ? "s" : ""} know about this story.`);
-    // TODO: send push notifications to selected members
+    // TODO: notify selected members
   }
   await appendBotMessage("Story saved! Got anything else for today's report?");
   resetState();

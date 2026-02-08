@@ -5,7 +5,6 @@ class DebugController < ApplicationController
   ADMIN_EMAIL = ENV.fetch("ADMIN_EMAIL", nil).freeze
 
   def show
-    @vapid_public_key = Rails.configuration.x.vapid.public_key
   end
 
   private

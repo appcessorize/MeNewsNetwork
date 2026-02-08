@@ -4,8 +4,6 @@ class User < ActiveRecord::Base
 
   has_many :stories, dependent: :destroy
   has_many :comments, dependent: :destroy
-  has_many :push_subscriptions, dependent: :destroy
-
   has_many :group_memberships, dependent: :destroy
   has_many :groups, through: :group_memberships
   has_many :created_groups, class_name: "Group", foreign_key: :creator_id, dependent: :nullify
