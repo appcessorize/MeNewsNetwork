@@ -43,6 +43,21 @@ const QUESTIONS = [
   { key: "extra", text: "Anything else we should know?",  placeholder: "e.g. happened yesterday, birthday party...", skip: "No" }
 ];
 
+// ── Double-buffer HLS video player (state) ────
+const buffers = {
+  a: { el: null, hls: null, src: null, ready: false },
+  b: { el: null, hls: null, src: null, ready: false },
+};
+let front = null; // currently visible/playing buffer
+let back = null;  // hidden buffer for preloading
+
+function initBuffers() {
+  buffers.a.el = document.getElementById("video-a");
+  buffers.b.el = document.getElementById("video-b");
+  front = buffers.a;
+  back = buffers.b;
+}
+
 function init() {
   bindFileInput();
   bindButtons();
@@ -623,21 +638,7 @@ function setBgMusicVolume(targetVol, fadeDuration = 500) {
   requestAnimationFrame(fade);
 }
 
-// ── Double-buffer HLS video player ────────────
-const buffers = {
-  a: { el: null, hls: null, src: null, ready: false },
-  b: { el: null, hls: null, src: null, ready: false },
-};
-let front = null; // currently visible/playing buffer
-let back = null;  // hidden buffer for preloading
-
-function initBuffers() {
-  buffers.a.el = document.getElementById("video-a");
-  buffers.b.el = document.getElementById("video-b");
-  front = buffers.a;
-  back = buffers.b;
-}
-
+// ── Double-buffer HLS video player (functions) ─
 function isHlsUrl(url) {
   return url && (url.endsWith(".m3u8") || url.includes("/manifest/video.m3u8"));
 }
