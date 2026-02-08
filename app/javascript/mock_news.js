@@ -567,9 +567,7 @@ let bgMusic = null;
 let currentAudio = null;
 
 // Preload caches
-const preloadedAudio = new Map();   // url → Audio element (ready to play)
 const preloadedImages = new Map();  // url → Image element (loaded)
-let firstCfReady = false;           // true once first CF iframe is pre-warmed
 
 // ── Activate player (responsive placement) ───
 function activatePlayer() {
@@ -636,7 +634,7 @@ function destroyCfPlayer() {
     cfPlayer = null;
   }
   const iframe = document.getElementById("cf-stream-player");
-  if (iframe) { iframe.removeAttribute("src"); iframe.style.display = "none"; }
+  if (iframe) iframe.style.display = "none";
 }
 
 function playCfVideo(src, muted, onReady, onEnded) {
@@ -709,20 +707,10 @@ function playCfVideo(src, muted, onReady, onEnded) {
     });
   }
 
-  // If iframe already has this src loaded (pre-warmed), reuse SDK instance
-  if (firstCfReady && iframe.src === src && cfPlayer) {
-    log("[CF] Reusing pre-warmed iframe");
-    iframe.style.display = "block";
-    attachSdkEvents(cfPlayer);
-    cfPlayer.currentTime = 0;
-    cfPlayer.play().catch(err => log(`[CF] play() error: ${err?.message || err}`));
-    return;
-  }
-
-  // Force fresh load: remove old src first to guarantee load event fires
-  iframe.removeAttribute("src");
-  iframe.src = src;
-  log(`[CF] Loading iframe: ${src.substring(0, 80)}...`);
+  // Set src directly — append cache-buster if reloading same URL (e.g. closing bumper)
+  const bustCache = iframe.src && iframe.src.includes(src.split("?")[0]);
+  iframe.src = bustCache ? src + "&_cb=" + Date.now() : src;
+  log(`[CF] Loading iframe: ${iframe.src.substring(0, 80)}...`);
 
   iframe.addEventListener("load", () => {
     log("[CF] iframe loaded, initializing SDK");
@@ -753,15 +741,7 @@ function playTtsAudio(url, onPlaying) {
   if (!url) return Promise.resolve();
   stopTTS();
   return new Promise((resolve) => {
-    let audio;
-    if (preloadedAudio.has(url)) {
-      audio = preloadedAudio.get(url);
-      audio.currentTime = 0;
-      log("[TTS] Using preloaded audio");
-    } else {
-      audio = new Audio(url);
-      log("[TTS] Audio not preloaded, creating on-the-fly");
-    }
+    const audio = new Audio(url);
     currentAudio = audio;
     let playingFired = false;
     audio.addEventListener("playing", function handler() {
@@ -783,6 +763,34 @@ function stopTTS() {
     currentAudio.pause();
     currentAudio = null;
   }
+  window.speechSynthesis.cancel();
+}
+
+// ── Browser TTS (SpeechSynthesis API) ──────────
+function playBrowserTts(text, onPlaying) {
+  if (!text) return Promise.resolve();
+  stopTTS();
+  return new Promise((resolve) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    // Pick an English voice (prefer en-GB, then en-US, then default)
+    const voices = window.speechSynthesis.getVoices();
+    const enGB = voices.find(v => v.lang === "en-GB");
+    const enUS = voices.find(v => v.lang === "en-US");
+    if (enGB) utterance.voice = enGB;
+    else if (enUS) utterance.voice = enUS;
+
+    utterance.onstart = () => {
+      log("[BrowserTTS] speaking");
+      if (onPlaying) onPlaying();
+    };
+    utterance.onend = () => { log("[BrowserTTS] ended"); resolve(); };
+    utterance.onerror = (e) => { log(`[BrowserTTS] error: ${e?.error || "unknown"}`); resolve(); };
+
+    window.speechSynthesis.speak(utterance);
+  });
 }
 
 // ── News Ticker ───────────────────────────────
@@ -910,6 +918,7 @@ function buildPlaybackQueue(master) {
       mode: "story",
       headline: story.studioHeadline || story.storyTitle,
       emoji: story.storyEmoji,
+      ttsText: story.introText,
       ttsUrl: story.ttsUrl,
       subtitles: story.subtitleSegments,
       posterUrl: story.posterUrl,
@@ -934,6 +943,7 @@ function buildPlaybackQueue(master) {
       type: "studio",
       mode: "weather",
       weather: weather,
+      ttsText: weather?.narration?.weatherNarration,
       ttsUrl: weather.ttsUrl,
       subtitles: weather.narration?.subtitleSegments,
       background: master.assets?.studioBgUrl,
@@ -961,22 +971,16 @@ async function preloadBulletin(master) {
   prepStatus.textContent = "Preparing bulletin...";
   prepDetail.textContent = "";
 
-  // Collect all URLs to preload
-  const ttsUrls = [];
+  // Collect image URLs to preload (TTS now handled by browser SpeechSynthesis)
   const imageUrls = [];
 
   (master.stories || []).forEach(story => {
-    if (story.ttsUrl) ttsUrls.push(story.ttsUrl);
     if (story.posterUrl) imageUrls.push(story.posterUrl);
   });
-  if (master.weather?.ttsUrl) ttsUrls.push(master.weather.ttsUrl);
   if (master.assets?.studioBgUrl) imageUrls.push(master.assets.studioBgUrl);
 
-  const firstBumperUrl = master.assets?.bumperUrl;
-  const hasCfBumper = firstBumperUrl && isCfStreamUrl(firstBumperUrl);
-
-  // Total items: ttsUrls + imageUrls + (cfBumper ? 1 : 0) + bgMusic(1)
-  const totalItems = ttsUrls.length + imageUrls.length + (hasCfBumper ? 1 : 0) + 1;
+  // Total items: images + bgMusic(1)
+  const totalItems = imageUrls.length + 1;
   let loadedItems = 0;
 
   function updateProgress(detail) {
@@ -987,31 +991,7 @@ async function preloadBulletin(master) {
     log(`[Preload] (${loadedItems}/${totalItems}) ${detail}`);
   }
 
-  // 1. Preload all TTS audio
-  prepStatus.textContent = "Loading audio...";
-  const ttsPromises = ttsUrls.map(url => {
-    return new Promise(resolve => {
-      const audio = new Audio();
-      audio.preload = "auto";
-      audio.addEventListener("canplaythrough", function handler() {
-        audio.removeEventListener("canplaythrough", handler);
-        preloadedAudio.set(url, audio);
-        updateProgress(`TTS audio ready`);
-        resolve();
-      }, { once: true });
-      audio.addEventListener("error", function handler() {
-        audio.removeEventListener("error", handler);
-        log(`[Preload] TTS audio failed: ${url.substring(0, 60)}`);
-        updateProgress(`TTS audio failed`);
-        resolve();
-      }, { once: true });
-      audio.src = url;
-      audio.load();
-    });
-  });
-  await Promise.all(ttsPromises);
-
-  // 2. Preload poster images + studio background
+  // 1. Preload poster images + studio background
   prepStatus.textContent = "Loading images...";
   const imgPromises = imageUrls.map(url => {
     return new Promise(resolve => {
@@ -1032,50 +1012,7 @@ async function preloadBulletin(master) {
   });
   await Promise.all(imgPromises);
 
-  // 3. Pre-warm first CF iframe (bumper)
-  if (hasCfBumper) {
-    prepStatus.textContent = "Loading video player...";
-    await new Promise(resolve => {
-      const iframe = document.getElementById("cf-stream-player");
-      iframe.src = firstBumperUrl;
-      const cfTimeout = setTimeout(() => {
-        log("[Preload] CF pre-warm timeout (8s)");
-        updateProgress("Video player timeout");
-        resolve();
-      }, 8000);
-
-      iframe.addEventListener("load", () => {
-        try {
-          const warmPlayer = Stream(iframe);
-          cfPlayer = warmPlayer;
-          warmPlayer.muted = true;
-
-          let resolved = false;
-          const readyEvents = ["canplay", "loadeddata"];
-          readyEvents.forEach(evt => {
-            warmPlayer.addEventListener(evt, function handler() {
-              try { warmPlayer.removeEventListener(evt, handler); } catch {}
-              if (!resolved) {
-                resolved = true;
-                clearTimeout(cfTimeout);
-                firstCfReady = true;
-                log(`[Preload] CF pre-warm ready via: ${evt}`);
-                updateProgress("Video player ready");
-                resolve();
-              }
-            });
-          });
-        } catch (err) {
-          log(`[Preload] CF SDK init error: ${err?.message || err}`);
-          clearTimeout(cfTimeout);
-          updateProgress("Video player error");
-          resolve();
-        }
-      }, { once: true });
-    });
-  }
-
-  // 4. Preload background music
+  // 2. Preload background music
   prepStatus.textContent = "Loading music...";
   initBgMusic();
   if (bgMusic) {
@@ -1234,13 +1171,17 @@ async function showStudioSegment(segment) {
     renderWeatherDisplay(segment.weather);
   }
 
-  // Play pre-generated TTS audio — subtitles start on actual playback, not before
+  // Play browser TTS — show full text as subtitle while speaking
   const ttsStart = Date.now();
-  await playTtsAudio(segment.ttsUrl, () => {
-    // onPlaying callback: audio has actually started — NOW start subtitles
-    if (segment.subtitles?.length) {
-      log("[Studio] TTS playing — starting subtitle timer");
-      startSubtitleTimer(segment.subtitles);
+  await playBrowserTts(segment.ttsText, () => {
+    // onPlaying callback: speech has started — show full text as subtitle
+    if (segment.ttsText) {
+      const subtitleEl = document.getElementById("subtitle-text");
+      if (subtitleEl) {
+        subtitleEl.textContent = segment.ttsText;
+        subtitleEl.style.display = "inline-block";
+        log("[Studio] TTS speaking — showing subtitle");
+      }
     }
   });
 
@@ -1263,6 +1204,7 @@ function togglePause() {
     if (cfPlayer) try { cfPlayer.pause(); } catch {}
     if (bgMusic && !bgMusic.paused) bgMusic.pause();
     stopTTS();
+    window.speechSynthesis.cancel();
     clearSubtitles();
     if (studioTimeout) clearTimeout(studioTimeout);
     btn.textContent = "▶";
@@ -1325,9 +1267,8 @@ function stopPlayer() {
   playerPaused = false;
 
   // Clear preload caches
-  preloadedAudio.clear();
   preloadedImages.clear();
-  firstCfReady = false;
+  window.speechSynthesis.cancel();
 
   deactivatePlayer();
   document.getElementById("player-segment-label").textContent = "Ready";
