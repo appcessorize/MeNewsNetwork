@@ -2,6 +2,8 @@
 //  Mock News Report — Debug Flow
 // ──────────────────────────────────────────────
 
+const LOG_START = performance.now();
+
 let bulletinId = null;
 let masterJson = null;
 
@@ -568,7 +570,6 @@ let currentAudio = null;
 const preloadedAudio = new Map();   // url → Audio element (ready to play)
 const preloadedImages = new Map();  // url → Image element (loaded)
 let firstCfReady = false;           // true once first CF iframe is pre-warmed
-const LOG_START = performance.now();
 
 // ── Activate player (responsive placement) ───
 function activatePlayer() {
