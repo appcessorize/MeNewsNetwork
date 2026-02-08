@@ -160,9 +160,28 @@
         </div>
       </div>
 
+      <!-- Preparation overlay (shown during preload phase) -->
+      <div id="prep-overlay" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black"
+           style="display: none;">
+        <div class="text-center px-6 w-full max-w-xs">
+          <div class="text-4xl mb-4">📺</div>
+          <h2 class="text-white font-black text-lg italic tracking-tight mb-1">MOCK NEWS</h2>
+          <p id="prep-status" class="text-white/60 text-sm mb-4">Preparing bulletin...</p>
+          <div class="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+            <div id="prep-bar" class="h-full bg-red-500 rounded-full transition-all duration-300" style="width: 0%;"></div>
+          </div>
+          <p id="prep-detail" class="text-white/40 text-xs mt-2"></p>
+        </div>
+      </div>
+
       <!-- Video element (object-cover: crop to fill, never stretch) -->
       <video id="bulletin-video"
              style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;display:block;"
+             playsinline></video>
+
+      <!-- Second video element for double-buffer preloading -->
+      <video id="bulletin-video-next"
+             style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;display:none;"
              playsinline></video>
 
       <!-- Inline player controls -->

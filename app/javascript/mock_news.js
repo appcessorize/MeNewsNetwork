@@ -506,6 +506,14 @@ let studioTimeout = null;
 let bgMusic = null;
 let currentTTS = null;
 
+// ── Preload Cache ─────────────────────────────
+const preloadCache = {
+  tts: new Map(),     // segmentIndex → { blobUrl, status }
+  posters: new Map(), // videoUrl → { dataUrl, status }
+};
+let preloadedHls = null;
+let preloadedSegmentIndex = -1;
+
 // ── Activate player (responsive placement) ───
 function activatePlayer() {
   const section = document.getElementById("player-section");
@@ -561,12 +569,47 @@ function setBgMusicVolume(targetVol, fadeDuration = 500) {
 // ── TTS (Text-to-Speech via Gemini) ─────────────────────
 let currentAudio = null;
 
-async function speakText(text) {
+async function prefetchTTS(text, segmentIndex) {
+  if (!text) return;
+  if (preloadCache.tts.has(segmentIndex)) return;
+  preloadCache.tts.set(segmentIndex, { blobUrl: null, status: "loading" });
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken() },
+      body: JSON.stringify({ text, voice: "Orus" })
+    });
+    if (!res.ok) { preloadCache.tts.set(segmentIndex, { blobUrl: null, status: "failed" }); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    preloadCache.tts.set(segmentIndex, { blobUrl: url, status: "ready" });
+  } catch {
+    preloadCache.tts.set(segmentIndex, { blobUrl: null, status: "failed" });
+  }
+}
+
+async function speakText(text, segmentIndex) {
   if (!text) return;
 
   // Stop any currently playing audio
   stopTTS();
 
+  // Check preload cache first
+  if (segmentIndex != null) {
+    const cached = preloadCache.tts.get(segmentIndex);
+    if (cached && cached.status === "ready" && cached.blobUrl) {
+      log("  TTS: using preloaded audio");
+      return new Promise((resolve) => {
+        const audio = new Audio(cached.blobUrl);
+        currentAudio = audio;
+        audio.onended = () => { currentAudio = null; resolve(); };
+        audio.onerror = () => { currentAudio = null; resolve(); };
+        audio.play().catch(() => { currentAudio = null; resolve(); });
+      });
+    }
+  }
+
+  // Fallback: fetch live
   try {
     const res = await fetch("/api/tts", {
       method: "POST",
@@ -619,12 +662,71 @@ function stopTTS() {
 }
 
 // ── Poster Capture ────────────────────────────
+function prefetchPoster(videoUrl) {
+  if (!videoUrl) return Promise.resolve();
+  if (preloadCache.posters.has(videoUrl)) return Promise.resolve();
+  preloadCache.posters.set(videoUrl, { dataUrl: null, status: "loading" });
+
+  return new Promise((resolve) => {
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = 352;
+    tempCanvas.height = 352;
+    const tctx = tempCanvas.getContext("2d");
+
+    const tempVid = document.createElement("video");
+    tempVid.muted = true;
+    tempVid.preload = "auto";
+    tempVid.playsInline = true;
+
+    const cleanup = () => { tempVid.src = ""; tempVid.remove(); resolve(); };
+    const timeout = setTimeout(() => {
+      preloadCache.posters.set(videoUrl, { dataUrl: null, status: "failed" });
+      cleanup();
+    }, 8000);
+
+    tempVid.addEventListener("loadeddata", () => {
+      tempVid.currentTime = Math.min(1, tempVid.duration * 0.1);
+    }, { once: true });
+
+    tempVid.addEventListener("seeked", () => {
+      clearTimeout(timeout);
+      const vw = tempVid.videoWidth, vh = tempVid.videoHeight;
+      const size = Math.min(vw, vh);
+      const sx = (vw - size) / 2, sy = (vh - size) / 2;
+      tctx.drawImage(tempVid, sx, sy, size, size, 0, 0, tempCanvas.width, tempCanvas.height);
+      const dataUrl = tempCanvas.toDataURL("image/jpeg", 0.7);
+      preloadCache.posters.set(videoUrl, { dataUrl, status: "ready" });
+      cleanup();
+    }, { once: true });
+
+    tempVid.addEventListener("error", () => {
+      clearTimeout(timeout);
+      preloadCache.posters.set(videoUrl, { dataUrl: null, status: "failed" });
+      cleanup();
+    }, { once: true });
+
+    tempVid.src = videoUrl;
+    tempVid.load();
+  });
+}
+
 function capturePoster(videoUrl) {
   return new Promise((resolve) => {
     const canvas = document.getElementById("poster-canvas");
     if (!canvas) { resolve(); return; }
     const ctx = canvas.getContext("2d");
-    // Dark placeholder while loading
+
+    // Check preload cache first
+    const cached = preloadCache.posters.get(videoUrl);
+    if (cached && cached.status === "ready" && cached.dataUrl) {
+      const img = new Image();
+      img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); resolve(); };
+      img.onerror = () => resolve();
+      img.src = cached.dataUrl;
+      return;
+    }
+
+    // Fallback: dark placeholder + live capture
     ctx.fillStyle = "#1a1a2e";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -729,6 +831,154 @@ function clearSubtitles() {
   if (el) el.style.display = "none";
 }
 
+// ── Video Double-Buffer ───────────────────────
+function preloadNextVideo(segmentIndex) {
+  if (segmentIndex < 0 || segmentIndex >= playerQueue.length) return;
+  if (preloadedSegmentIndex === segmentIndex) return; // already preloading this one
+
+  const segment = playerQueue[segmentIndex];
+  if (!segment || (segment.type !== "video" && segment.type !== "bumper")) return;
+
+  const nextVideo = document.getElementById("bulletin-video-next");
+  if (!nextVideo) return;
+
+  // Clean up any previous preload
+  destroyPreloadedHls();
+  nextVideo.removeAttribute("src");
+  nextVideo.load();
+
+  preloadedSegmentIndex = segmentIndex;
+  const src = segment.src;
+  const isHls = src && src.endsWith(".m3u8");
+
+  if (isHls) {
+    if (nextVideo.canPlayType("application/vnd.apple.mpegurl")) {
+      // Safari native HLS
+      nextVideo.src = src;
+      nextVideo.preload = "auto";
+      nextVideo.load();
+    } else if (typeof Hls !== "undefined" && Hls.isSupported()) {
+      preloadedHls = new Hls();
+      preloadedHls.loadSource(src);
+      preloadedHls.attachMedia(nextVideo);
+    }
+  } else if (src) {
+    nextVideo.src = src;
+    nextVideo.preload = "auto";
+    nextVideo.load();
+  }
+
+  log("  Preloading next: [" + segment.type + "] " + segment.label);
+}
+
+function destroyPreloadedHls() {
+  if (preloadedHls) {
+    preloadedHls.destroy();
+    preloadedHls = null;
+  }
+}
+
+function startLookaheadPreload(fromIndex) {
+  for (let i = fromIndex; i < playerQueue.length; i++) {
+    const seg = playerQueue[i];
+    if (seg.type === "video" || seg.type === "bumper") {
+      preloadNextVideo(i);
+      return;
+    }
+  }
+}
+
+function waitForVideoBuffer(videoEl, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    if (videoEl.readyState >= 3) { resolve(true); return; }
+    const start = Date.now();
+    const poll = setInterval(() => {
+      if (videoEl.readyState >= 3 || Date.now() - start > timeoutMs) {
+        clearInterval(poll);
+        resolve(videoEl.readyState >= 3);
+      }
+    }, 100);
+  });
+}
+
+// ── Preparation Phase ─────────────────────────
+function showPreparationScreen() {
+  const el = document.getElementById("prep-overlay");
+  if (el) el.style.display = "flex";
+}
+
+function hidePreparationScreen() {
+  const el = document.getElementById("prep-overlay");
+  if (el) el.style.display = "none";
+}
+
+function updatePreparationProgress(pct, detail) {
+  const bar = document.getElementById("prep-bar");
+  const detailEl = document.getElementById("prep-detail");
+  if (bar) bar.style.width = Math.min(100, Math.round(pct)) + "%";
+  if (detailEl) detailEl.textContent = detail || "";
+}
+
+async function prepareBulletin() {
+  // 1. Gather all TTS segments
+  const ttsSegments = [];
+  const posterUrls = [];
+  playerQueue.forEach((seg, i) => {
+    if (seg.type === "studio" && seg.introText) {
+      ttsSegments.push({ index: i, text: seg.introText });
+    }
+    if (seg.type === "studio" && seg.mode === "story" && seg.videoUrl) {
+      if (!posterUrls.includes(seg.videoUrl)) posterUrls.push(seg.videoUrl);
+    }
+  });
+
+  const totalSteps = ttsSegments.length + posterUrls.length + 1; // +1 for first video buffer
+  let completed = 0;
+
+  // 2. Prefetch all TTS (3 concurrent)
+  updatePreparationProgress(0, "Loading voiceovers...");
+  const ttsChunks = [];
+  for (let i = 0; i < ttsSegments.length; i += 3) {
+    ttsChunks.push(ttsSegments.slice(i, i + 3));
+  }
+  for (const chunk of ttsChunks) {
+    await Promise.all(chunk.map(async (s) => {
+      await prefetchTTS(s.text, s.index);
+      completed++;
+      const pct = (completed / totalSteps) * 100;
+      updatePreparationProgress(pct, `Voiceover ${completed} of ${ttsSegments.length}...`);
+    }));
+  }
+
+  // 3. Prefetch posters (2 concurrent)
+  updatePreparationProgress((completed / totalSteps) * 100, "Capturing thumbnails...");
+  const posterChunks = [];
+  for (let i = 0; i < posterUrls.length; i += 2) {
+    posterChunks.push(posterUrls.slice(i, i + 2));
+  }
+  for (const chunk of posterChunks) {
+    await Promise.all(chunk.map(async (url) => {
+      await prefetchPoster(url);
+      completed++;
+      const pct = (completed / totalSteps) * 100;
+      updatePreparationProgress(pct, "Capturing thumbnails...");
+    }));
+  }
+
+  // 4. Pre-buffer first video segment
+  updatePreparationProgress((completed / totalSteps) * 100, "Buffering first video...");
+  const firstVideoIdx = playerQueue.findIndex(s => s.type === "bumper" || s.type === "video");
+  if (firstVideoIdx >= 0) {
+    preloadNextVideo(firstVideoIdx);
+    const nextVideo = document.getElementById("bulletin-video-next");
+    if (nextVideo) await waitForVideoBuffer(nextVideo, 8000);
+  }
+  completed++;
+  updatePreparationProgress(100, "Ready!");
+
+  return true;
+}
+
 // ── Build Playback Queue ──────────────────────
 function buildPlaybackQueue(master) {
   const queue = [];
@@ -784,7 +1034,7 @@ function buildPlaybackQueue(master) {
 }
 
 // ── Play Bulletin ─────────────────────────────
-function playBulletin() {
+async function playBulletin() {
   if (!masterJson) return log("ERROR: Build the bulletin first");
 
   log("Starting bulletin playback...");
@@ -805,6 +1055,13 @@ function playBulletin() {
 
   const section = document.getElementById("player-section");
   section.scrollIntoView({ behavior: "smooth" });
+
+  // Preparation phase — preload everything before playback
+  showPreparationScreen();
+  log("Preparing bulletin (preloading TTS, posters, first video)...");
+  await prepareBulletin();
+  log("Preparation complete — starting playback.");
+  hidePreparationScreen();
 
   playNextSegment();
 }
@@ -838,19 +1095,63 @@ function playNextSegment() {
 
 // ── Bumper Segment (bg music full volume) ─────
 function playBumperSegment(segment) {
-  const video = document.getElementById("bulletin-video");
+  let video = document.getElementById("bulletin-video");
+  const nextVideo = document.getElementById("bulletin-video-next");
   const overlay = document.getElementById("studio-overlay");
 
-  overlay.style.display = "none";
-  video.style.display = "block";
   clearSubtitles();
   stopTTS();
 
   // Background music full volume during bumper
   setBgMusicVolume(1.0, 300);
 
+  // Double-buffer swap: if this segment is preloaded on the next video, swap them
+  if (preloadedSegmentIndex === playerIndex && nextVideo && nextVideo.readyState >= 2) {
+    log("  Using preloaded buffer for bumper");
+    // Swap visibility
+    video.style.display = "none";
+    video.pause();
+    video.removeAttribute("src");
+
+    nextVideo.style.display = "block";
+    overlay.style.display = "none";
+    nextVideo.muted = true;
+    nextVideo.onended = () => { playerIndex++; playNextSegment(); };
+    nextVideo.onerror = () => { log("Bumper error, skipping..."); playerIndex++; playNextSegment(); };
+
+    // Promote preloaded HLS to active
+    if (preloadedHls) { destroyHls(); activeHls = preloadedHls; preloadedHls = null; }
+    preloadedSegmentIndex = -1;
+
+    nextVideo.play().catch(err => {
+      log("Bumper play failed: " + err.message);
+      playerIndex++;
+      playNextSegment();
+    });
+
+    // After playback ends, swap IDs back for next cycle
+    const onDone = () => {
+      nextVideo.onended = null;
+      nextVideo.style.display = "none";
+      nextVideo.removeAttribute("src");
+      nextVideo.load();
+      video.style.display = "block";
+    };
+    const origOnended = nextVideo.onended;
+    nextVideo.onended = () => { onDone(); origOnended && origOnended(); };
+
+    // Trigger lookahead for next segment
+    startLookaheadPreload(playerIndex + 1);
+    return;
+  }
+
+  // Fallback: load on demand
+  overlay.style.display = "none";
+  video.style.display = "block";
+  destroyHls();
+
   video.src = segment.src;
-  video.muted = true; // bumper video muted, music provides audio
+  video.muted = true;
   video.onended = () => { playerIndex++; playNextSegment(); };
   video.onerror = () => { log("Bumper error, skipping..."); playerIndex++; playNextSegment(); };
   video.oncanplay = () => {
@@ -862,6 +1163,9 @@ function playBumperSegment(segment) {
     });
   };
   video.load();
+
+  // Trigger lookahead for next segment
+  startLookaheadPreload(playerIndex + 1);
 }
 
 // ── HLS.js instance (cleaned up on stop) ─────
@@ -869,18 +1173,60 @@ let activeHls = null;
 
 // ── Video Segment (bg music off, HLS.js for .m3u8) ──────────────
 function playVideoSegment(segment) {
-  const video = document.getElementById("bulletin-video");
+  let video = document.getElementById("bulletin-video");
+  const nextVideo = document.getElementById("bulletin-video-next");
   const overlay = document.getElementById("studio-overlay");
 
-  overlay.style.display = "none";
-  video.style.display = "block";
   clearSubtitles();
   stopTTS();
-  destroyHls();
 
   // Silence bg music during user video
   setBgMusicVolume(0, 500);
 
+  // Double-buffer swap: if this segment is preloaded, use the next video element
+  if (preloadedSegmentIndex === playerIndex && nextVideo && nextVideo.readyState >= 2) {
+    log("  Using preloaded buffer for video");
+    destroyHls();
+
+    video.style.display = "none";
+    video.pause();
+    video.removeAttribute("src");
+
+    nextVideo.style.display = "block";
+    overlay.style.display = "none";
+    nextVideo.muted = false;
+    nextVideo.onended = () => { playerIndex++; playNextSegment(); };
+    nextVideo.onerror = () => {
+      log("Video error: " + segment.label + ", skipping...");
+      playerIndex++;
+      playNextSegment();
+    };
+
+    if (preloadedHls) { activeHls = preloadedHls; preloadedHls = null; }
+    preloadedSegmentIndex = -1;
+
+    nextVideo.play().catch(err => {
+      log("Autoplay blocked, trying muted: " + err.message);
+      nextVideo.muted = true;
+      nextVideo.play().catch(() => { playerIndex++; playNextSegment(); });
+    });
+
+    // After playback ends, swap back
+    const origOnended = nextVideo.onended;
+    nextVideo.onended = () => {
+      nextVideo.style.display = "none";
+      nextVideo.removeAttribute("src");
+      nextVideo.load();
+      video.style.display = "block";
+      origOnended && origOnended();
+    };
+
+    startLookaheadPreload(playerIndex + 1);
+    return;
+  }
+
+  // Fallback: load on demand (keep studio overlay visible as hold frame until ready)
+  destroyHls();
   const isHls = segment.src && segment.src.endsWith(".m3u8");
 
   video.muted = false;
@@ -891,12 +1237,18 @@ function playVideoSegment(segment) {
     playNextSegment();
   };
 
+  // Ready gate: only hide overlay and show video when it can play
+  const showVideoWhenReady = () => {
+    overlay.style.display = "none";
+    video.style.display = "block";
+  };
+
   if (isHls) {
-    // Safari has native HLS support
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = segment.src;
       video.oncanplay = () => {
         video.oncanplay = null;
+        showVideoWhenReady();
         video.play().catch(err => {
           log("Autoplay blocked, trying muted: " + err.message);
           video.muted = true;
@@ -909,6 +1261,7 @@ function playVideoSegment(segment) {
       activeHls.loadSource(segment.src);
       activeHls.attachMedia(video);
       activeHls.on(Hls.Events.MANIFEST_PARSED, () => {
+        showVideoWhenReady();
         video.play().catch(err => {
           log("Autoplay blocked, trying muted: " + err.message);
           video.muted = true;
@@ -929,10 +1282,10 @@ function playVideoSegment(segment) {
       playNextSegment();
     }
   } else {
-    // Direct MP4 path
     video.src = segment.src;
     video.oncanplay = () => {
       video.oncanplay = null;
+      showVideoWhenReady();
       video.play().catch(err => {
         log("Autoplay blocked, trying muted: " + err.message);
         video.muted = true;
@@ -941,6 +1294,8 @@ function playVideoSegment(segment) {
     };
     video.load();
   }
+
+  startLookaheadPreload(playerIndex + 1);
 }
 
 function destroyHls() {
@@ -985,15 +1340,8 @@ async function showStudioSegment(segment) {
     renderWeatherDisplay(segment.weather);
   }
 
-  // Preload the next video segment while TTS plays
-  const nextSeg = playerQueue[playerIndex + 1];
-  if (nextSeg && (nextSeg.type === "video" || nextSeg.type === "bumper")) {
-    const preload = document.createElement("link");
-    preload.rel = "preload";
-    preload.as = "video";
-    preload.href = nextSeg.src;
-    document.head.appendChild(preload);
-  }
+  // Preload the next video segment into the double-buffer while TTS plays
+  startLookaheadPreload(playerIndex + 1);
 
   // Start subtitles (timed from Gemini's estimated reading pace)
   if (segment.subtitles?.length) {
@@ -1004,7 +1352,7 @@ async function showStudioSegment(segment) {
   log("  TTS: " + (segment.introText || "").substring(0, 80) + "...");
   const ttsStart = Date.now();
 
-  await speakText(segment.introText);
+  await speakText(segment.introText, playerIndex);
 
   // Ensure minimum display time (4s) even if TTS is very fast/unavailable
   const elapsed = Date.now() - ttsStart;
@@ -1025,11 +1373,13 @@ async function showStudioSegment(segment) {
 // ── Pause / Resume ────────────────────────────
 function togglePause() {
   const video = document.getElementById("bulletin-video");
+  const nextVideo = document.getElementById("bulletin-video-next");
   const btn = document.getElementById("btn-player-pause");
   playerPaused = !playerPaused;
 
   if (playerPaused) {
     video.pause();
+    if (nextVideo) nextVideo.pause();
     if (bgMusic && !bgMusic.paused) bgMusic.pause();
     stopTTS();
     clearSubtitles();
@@ -1040,7 +1390,12 @@ function togglePause() {
     if (bgMusic) bgMusic.play().catch(() => {});
     const segment = playerQueue[playerIndex];
     if (segment?.type === "video" || segment?.type === "bumper") {
-      if (video.src) video.play();
+      // Resume whichever video element is currently active
+      if (nextVideo && nextVideo.style.display !== "none" && nextVideo.src) {
+        nextVideo.play();
+      } else if (video.src) {
+        video.play();
+      }
     } else {
       // For studio segments, advance to next
       playerIndex++;
@@ -1054,10 +1409,29 @@ function togglePause() {
 // ── Stop Player ───────────────────────────────
 function stopPlayer() {
   const video = document.getElementById("bulletin-video");
+  const nextVideo = document.getElementById("bulletin-video-next");
   destroyHls();
+  destroyPreloadedHls();
   video.pause();
   video.removeAttribute("src");
   video.load();
+  video.style.display = "block";
+
+  // Clean up next video buffer
+  if (nextVideo) {
+    nextVideo.pause();
+    nextVideo.removeAttribute("src");
+    nextVideo.load();
+    nextVideo.style.display = "none";
+  }
+  preloadedSegmentIndex = -1;
+
+  // Revoke all cached TTS blob URLs
+  for (const entry of preloadCache.tts.values()) {
+    if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
+  }
+  preloadCache.tts.clear();
+  preloadCache.posters.clear();
 
   clearSubtitles();
   stopTTS();
@@ -1067,6 +1441,7 @@ function stopPlayer() {
   setTimeout(() => { if (bgMusic) { bgMusic.pause(); bgMusic.currentTime = 0; } }, 400);
 
   document.getElementById("studio-overlay").style.display = "none";
+  hidePreparationScreen();
   playerQueue = [];
   playerIndex = 0;
   playerPaused = false;
