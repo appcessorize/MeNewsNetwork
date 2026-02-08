@@ -623,9 +623,17 @@ function setBgMusicVolume(targetVol, fadeDuration = 500) {
 
 // ── CF Stream Player (iframe + SDK) ───────────
 let cfPlayer = null;
+let cfPrewarm = null; // { src, player, ready }
 
 function isCfStreamUrl(url) {
   return url && url.includes("cloudflarestream.com/") && url.includes("/iframe");
+}
+
+function discardPrewarm() {
+  if (cfPrewarm) {
+    if (cfPrewarm.player) try { cfPrewarm.player.pause(); } catch {}
+    cfPrewarm = null;
+  }
 }
 
 function destroyCfPlayer() {
@@ -633,8 +641,64 @@ function destroyCfPlayer() {
     try { cfPlayer.pause(); } catch {}
     cfPlayer = null;
   }
+  discardPrewarm();
   const iframe = document.getElementById("cf-stream-player");
   if (iframe) iframe.style.display = "none";
+}
+
+function preloadNextCfVideo(src) {
+  // Skip if already preloading this URL
+  if (cfPrewarm && cfPrewarm.src === src) {
+    log(`[CF-Prewarm] Already preloading: ${src.substring(0, 60)}...`);
+    return;
+  }
+
+  discardPrewarm();
+
+  const iframe = document.getElementById("cf-stream-player");
+  if (!iframe) return;
+
+  const prewarm = { src, player: null, ready: false };
+  cfPrewarm = prewarm;
+
+  // Show iframe but it's hidden behind z-10 studio overlay
+  iframe.style.display = "block";
+  iframe.src = src;
+  log(`[CF-Prewarm] Loading iframe: ${src.substring(0, 60)}...`);
+
+  iframe.addEventListener("load", () => {
+    // Guard against stale prewarm
+    if (cfPrewarm !== prewarm) {
+      log("[CF-Prewarm] Stale iframe load — discarding");
+      return;
+    }
+
+    log("[CF-Prewarm] iframe loaded, initializing SDK");
+    const player = Stream(iframe);
+    prewarm.player = player;
+    player.muted = true;
+
+    // Play muted to force buffering
+    player.play().catch(err => log(`[CF-Prewarm] play() error: ${err?.message || err}`));
+
+    // On first ready-like event, pause and mark ready
+    const readyEvents = ["canplay", "loadeddata", "playing", "timeupdate"];
+    let settled = false;
+
+    readyEvents.forEach(evt => {
+      player.addEventListener(evt, function handler() {
+        if (settled || cfPrewarm !== prewarm) return;
+        settled = true;
+        try { player.pause(); } catch {}
+        prewarm.ready = true;
+        log(`[CF-Prewarm] READY via ${evt}`);
+        // Clean up remaining listeners
+        readyEvents.forEach(e => {
+          try { player.removeEventListener(e, handler); } catch {}
+        });
+      });
+    });
+  }, { once: true });
 }
 
 function playCfVideo(src, muted, onReady, onEnded) {
@@ -647,11 +711,12 @@ function playCfVideo(src, muted, onReady, onEnded) {
 
   let readyFired = false;
   let endedFired = false;
+  let timeoutId = null;
 
   function fireReady(via) {
     if (readyFired) return;
     readyFired = true;
-    clearTimeout(timeout);
+    if (timeoutId) clearTimeout(timeoutId);
     log(`[CF] READY via: ${via}`);
     onReady();
   }
@@ -659,20 +724,77 @@ function playCfVideo(src, muted, onReady, onEnded) {
   function fireEnded(via) {
     if (endedFired) return;
     endedFired = true;
-    clearTimeout(timeout);
+    if (timeoutId) clearTimeout(timeoutId);
     log(`[CF] ENDED via: ${via}`);
     onEnded();
   }
 
-  const timeout = setTimeout(() => {
-    log("[CF] TIMEOUT (10s) — force-firing ready+ended");
-    fireReady("timeout");
-    setTimeout(() => fireEnded("timeout"), 500);
-  }, 10000);
+  // ── Fast path: consume prewarmed player ──
+  if (cfPrewarm && cfPrewarm.src === src && cfPrewarm.player) {
+    log("[CF] Fast path — consuming prewarm");
+    const pw = cfPrewarm;
+    cfPrewarm = null;
+    cfPlayer = pw.player;
+    cfPlayer.muted = muted;
+    cfPlayer.currentTime = 0;
 
-  function attachSdkEvents(player) {
+    // Attach ended/error handlers
+    cfPlayer.addEventListener("ended", function handler() {
+      try { cfPlayer.removeEventListener("ended", handler); } catch {}
+      fireEnded("ended");
+    });
+    cfPlayer.addEventListener("error", function handler(e) {
+      try { cfPlayer.removeEventListener("error", handler); } catch {}
+      log(`[CF] ERROR: ${e?.message || "unknown"}`);
+      fireEnded("error");
+    });
+
+    // Guard debug listeners: only log if cfPlayer === thisPlayer
+    const thisPlayer = cfPlayer;
+    ["play", "pause", "waiting", "stalled", "suspend", "seeked"].forEach(evt => {
+      thisPlayer.addEventListener(evt, () => {
+        if (cfPlayer === thisPlayer) log(`[CF] event: ${evt}`);
+      });
+    });
+
+    cfPlayer.play()
+      .then(() => fireReady("prewarm-play"))
+      .catch(err => {
+        log(`[CF] prewarm play() error: ${err?.message || err}`);
+        fireReady("prewarm-play-fallback");
+      });
+
+    // 5s safety timeout (should be near-instant)
+    timeoutId = setTimeout(() => {
+      log("[CF] TIMEOUT (5s fast-path) — force-firing ready+ended");
+      fireReady("timeout");
+      setTimeout(() => fireEnded("timeout"), 500);
+    }, 5000);
+
+    return;
+  }
+
+  // ── Slow path: no prewarm — load from scratch ──
+  discardPrewarm(); // clear mismatched prewarm
+
+  // Set src directly — append cache-buster if reloading same URL (e.g. closing bumper)
+  const bustCache = iframe.src && iframe.src.includes(src.split("?")[0]);
+  iframe.src = bustCache ? src + "&_cb=" + Date.now() : src;
+  log(`[CF] Slow path — Loading iframe: ${iframe.src.substring(0, 80)}...`);
+
+  iframe.addEventListener("load", () => {
+    log("[CF] iframe loaded, initializing SDK");
+    const player = Stream(iframe);
+    const thisPlayer = player;
     cfPlayer = player;
     player.muted = muted;
+
+    // FIX: Start timeout AFTER iframe load (not before)
+    timeoutId = setTimeout(() => {
+      log("[CF] TIMEOUT (15s) — force-firing ready+ended");
+      fireReady("timeout");
+      setTimeout(() => fireEnded("timeout"), 500);
+    }, 15000);
 
     const readyEvents = ["canplay", "loadeddata", "playing"];
     readyEvents.forEach(evt => {
@@ -701,21 +823,13 @@ function playCfVideo(src, muted, onReady, onEnded) {
       fireEnded("error");
     });
 
-    // Log all events for debugging
+    // Guard debug listeners: only log if cfPlayer === thisPlayer
     ["play", "pause", "waiting", "stalled", "suspend", "seeked"].forEach(evt => {
-      player.addEventListener(evt, () => log(`[CF] event: ${evt}`));
+      player.addEventListener(evt, () => {
+        if (cfPlayer === thisPlayer) log(`[CF] event: ${evt}`);
+      });
     });
-  }
 
-  // Set src directly — append cache-buster if reloading same URL (e.g. closing bumper)
-  const bustCache = iframe.src && iframe.src.includes(src.split("?")[0]);
-  iframe.src = bustCache ? src + "&_cb=" + Date.now() : src;
-  log(`[CF] Loading iframe: ${iframe.src.substring(0, 80)}...`);
-
-  iframe.addEventListener("load", () => {
-    log("[CF] iframe loaded, initializing SDK");
-    const player = Stream(iframe);
-    attachSdkEvents(player);
     player.play().catch(err => log(`[CF] play() error: ${err?.message || err}`));
   }, { once: true });
 }
@@ -1038,6 +1152,11 @@ async function preloadBulletin(master) {
     updateProgress("No music element");
   }
 
+  // 3. Kick off bumper prewarm (non-blocking)
+  if (master.assets?.bumperUrl && isCfStreamUrl(master.assets.bumperUrl)) {
+    preloadNextCfVideo(master.assets.bumperUrl);
+  }
+
   prepStatus.textContent = "Ready!";
   prepBar.style.width = "100%";
   log("[Preload] All assets loaded");
@@ -1123,7 +1242,7 @@ function playVideoSegment(segment) {
   clearSubtitles();
   stopTTS();
   setBgMusicVolume(0, 500);
-  showTicker(segment.headline);
+  hideTicker();
 
   const onReady = () => { overlay.style.display = "none"; };
   const advance = () => { playerIndex++; playNextSegment(); };
@@ -1171,6 +1290,13 @@ async function showStudioSegment(segment) {
     renderWeatherDisplay(segment.weather);
   }
 
+  // Peek ahead: preload next CF video while TTS plays
+  const nextSeg = playerQueue[playerIndex + 1];
+  if (nextSeg && (nextSeg.type === "video" || nextSeg.type === "bumper")
+      && isCfStreamUrl(nextSeg.src)) {
+    preloadNextCfVideo(nextSeg.src);
+  }
+
   // Play browser TTS — show full text as subtitle while speaking
   const ttsStart = Date.now();
   await playBrowserTts(segment.ttsText, () => {
@@ -1202,6 +1328,7 @@ function togglePause() {
   if (playerPaused) {
     video.pause();
     if (cfPlayer) try { cfPlayer.pause(); } catch {}
+    if (cfPrewarm?.player) try { cfPrewarm.player.pause(); } catch {}
     if (bgMusic && !bgMusic.paused) bgMusic.pause();
     stopTTS();
     window.speechSynthesis.cancel();
@@ -1267,6 +1394,7 @@ function stopPlayer() {
   playerPaused = false;
 
   // Clear preload caches
+  discardPrewarm();
   preloadedImages.clear();
   window.speechSynthesis.cancel();
 
