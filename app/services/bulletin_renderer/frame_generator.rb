@@ -193,14 +193,14 @@ class BulletinRenderer
       end
     end
 
-    def render_text_image(text, size:, width:, height:, font: nil, color: "white", background: "none")
+    def render_text_image(text, size:, width:, height:, font: "DejaVu-Sans", color: "white", background: "none")
       img = MiniMagick::Image.create(".png") do |f|
         MiniMagick::Tool::Convert.new do |cmd|
           cmd.size "#{width}x#{height}"
           cmd.merge! ["xc:#{background}"]
           cmd.gravity "Center"
           cmd.fill color
-          cmd.font font if font
+          cmd.font font
           cmd.pointsize size
           cmd.annotate "+0+0", text.to_s
           cmd << f.path
