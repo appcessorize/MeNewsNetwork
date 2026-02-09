@@ -15,6 +15,11 @@ module Api
 
       # Clean up failed stories so they don't inflate counts or confuse status
       bulletin.debug_stories.where(status: "failed").destroy_all
+      # Wipe old seed stories so the seeder always creates a fresh set of 3
+      bulletin.debug_stories.where(user_id: nil).destroy_all
+      # Keep only the user's latest done story
+      user_done = bulletin.debug_stories.where(user_id: current_user.id, status: "done").order(created_at: :desc)
+      user_done.offset(1).destroy_all if user_done.count > 1
 
       if bulletin.debug_stories.where(status: "done").empty?
         return render json: { ok: false, error: "No analyzed stories to build a bulletin from" }, status: :unprocessable_entity

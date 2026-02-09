@@ -962,7 +962,7 @@ async function pollAnalysisStatus(bubble) {
 }
 
 async function pollBulletinRender(bulletinId, typing) {
-  const maxAttempts = 120; // 2 minutes
+  const maxAttempts = 300; // 10 minutes
   let attempts = 0;
   let lastStep = "";
 
