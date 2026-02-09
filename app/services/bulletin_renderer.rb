@@ -84,15 +84,8 @@ class BulletinRenderer
       log_segment_duration(studio_seg, "studio story #{story.story_number}")
       segment_paths << { path: studio_seg, type: :studio }
 
-      # User video segment
-      if inputs[:video]
-        log("[Render] Starting user video for story #{story.story_number} (file: #{inputs[:video]}, size: #{(File.size(inputs[:video]) / 1e6).round(2)} MB)...")
-        video_seg = render_user_video_segment(inputs[:video], story)
-        log_segment_duration(video_seg, "user video story #{story.story_number}")
-        segment_paths << { path: video_seg, type: :user_video }
-      else
-        log("[Render] No user video for story #{story.story_number}, skipping")
-      end
+      # User video segment — temporarily skipped to isolate rendering issues
+      log("[Render] Skipping user video for story #{story.story_number} (temporarily disabled)")
     end
 
     # Weather segment

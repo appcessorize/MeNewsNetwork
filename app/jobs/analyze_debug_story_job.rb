@@ -252,7 +252,7 @@ class AnalyzeDebugStoryJob < ApplicationJob
         "ffmpeg -y -i #{escaped}",
         "-map 0:v:0 -map 0:a:0",
         "-sn -dn",
-        "-c copy",
+        "-c:v copy -c:a aac -b:a 128k",
         "-movflags +faststart",
         Shellwords.escape(mp4_path)
       ].join(" ")
