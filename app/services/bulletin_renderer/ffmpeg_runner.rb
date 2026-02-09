@@ -1,6 +1,6 @@
 require "open3"
 
-module BulletinRenderer
+class BulletinRenderer
   class FfmpegRunner
     class FfmpegError < StandardError; end
 

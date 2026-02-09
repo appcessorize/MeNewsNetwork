@@ -1,6 +1,6 @@
 require "mini_magick"
 
-module BulletinRenderer
+class BulletinRenderer
   class FrameGenerator
     WIDTH = 1080
     HEIGHT = 1920

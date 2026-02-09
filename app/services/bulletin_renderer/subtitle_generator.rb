@@ -1,4 +1,4 @@
-module BulletinRenderer
+class BulletinRenderer
   class SubtitleGenerator
     # Convert subtitleSegments JSON array to ASS subtitle format
     # Scales timing to match actual TTS WAV duration
