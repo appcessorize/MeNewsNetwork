@@ -140,7 +140,10 @@
   <div class="grid gap-6 md:grid-cols-2 mb-6">
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body">
-        <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">Debug Messages</h2>
+        <div class="flex items-center justify-between">
+          <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">Debug Messages</h2>
+          <button type="button" class="btn btn-xs btn-ghost" onclick="navigator.clipboard.writeText(document.getElementById('debug').textContent).then(() => this.textContent = 'Copied!').catch(() => this.textContent = 'Failed'); setTimeout(() => this.textContent = 'Copy Log', 2000)">Copy Log</button>
+        </div>
         <pre id="debug" class="mono-panel min-h-[120px] max-h-[350px]"></pre>
       </div>
     </div>

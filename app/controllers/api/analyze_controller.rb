@@ -16,14 +16,19 @@ module Api
 
       Rails.logger.info("[upload] Received #{original_name} (#{mime_type}, #{(file.size / 1e6).round(1)} MB)")
 
+      total_start = monotonic_ms
+
       begin
         # 1. Upload to Gemini File API
         Rails.logger.info("[gemini] Uploading file via File API...")
+        upload_start = monotonic_ms
         file_manager = Gemini::FileManager.new
         gemini_file = file_manager.upload_and_wait(file_path, mime_type: mime_type, display_name: original_name)
+        upload_ms = monotonic_ms - upload_start
 
         # 2. Analyze video
         Rails.logger.info("[gemini] File is ACTIVE, starting analysis...")
+        analysis_start = monotonic_ms
         generator = Gemini::ContentGenerator.new
         analysis = generator.generate_with_file(
           file_uri: gemini_file[:uri],
@@ -32,6 +37,7 @@ module Api
           temperature: 0.2,
           json_response: true
         )
+        analysis_ms = monotonic_ms - analysis_start
 
         # 3. Parse and validate segments
         parsed = JSON.parse(analysis[:text], symbolize_names: true)
@@ -44,12 +50,14 @@ module Api
 
         # 4. Generate newsreader script
         Rails.logger.info("[gemini] Generating newsreader script...")
+        script_start = monotonic_ms
         script_result = generator.generate_with_file(
           file_uri: gemini_file[:uri],
           file_mime_type: gemini_file[:mimeType],
           prompt: VideoAnalysis::PromptBuilder.script_prompt(segments_text),
           temperature: 0.4
         )
+        script_ms = monotonic_ms - script_start
 
         news_script = script_result[:text]
         Rails.logger.info("[gemini] Script generated")
@@ -66,17 +74,60 @@ module Api
         })
         Rails.logger.info("[session] Created session #{session_id}")
 
+        total_ms = monotonic_ms - total_start
+
         render json: {
           ok: true,
           segmentsText: segments_text,
           segments: segments,
           newsScript: news_script,
           sessionId: session_id,
-          usage: usage
+          usage: usage,
+          debug: {
+            upload_ms: upload_ms,
+            analysis_ms: analysis_ms,
+            script_ms: script_ms,
+            total_ms: total_ms,
+            gemini_file_state: gemini_file[:state],
+            gemini_mime: gemini_file[:mimeType],
+            file_size: file.size,
+            file_mime: mime_type,
+            file_name: original_name
+          }
         }
+      rescue Gemini::ApiError => e
+        Rails.logger.error("[error] Gemini::ApiError step=#{e.step} http=#{e.http_status} — #{e.message}")
+        elapsed_ms = monotonic_ms - total_start
+        render json: {
+          ok: false,
+          error: "Gemini analysis failed: #{e.message}",
+          debug: {
+            step: e.step,
+            elapsed_ms: elapsed_ms,
+            http_status: e.http_status,
+            gemini_state: e.file_state,
+            gemini_error: e.file_error,
+            response_body: e.response_body,
+            file_mime: mime_type,
+            file_size: file.size,
+            file_name: original_name
+          }
+        }, status: :bad_gateway
       rescue => e
-        Rails.logger.error("[error] #{e.message}")
-        render json: { ok: false, error: "Gemini analysis failed: #{e.message}" }, status: :bad_gateway
+        Rails.logger.error("[error] #{e.class}: #{e.message}")
+        elapsed_ms = monotonic_ms - total_start
+        render json: {
+          ok: false,
+          error: "Gemini analysis failed: #{e.message}",
+          debug: {
+            step: "unknown",
+            elapsed_ms: elapsed_ms,
+            error_class: e.class.name,
+            file_mime: mime_type,
+            file_size: file.size,
+            file_name: original_name
+          }
+        }, status: :bad_gateway
       end
     end
 
@@ -97,6 +148,10 @@ module Api
       if file.size > MAX_FILE_SIZE
         render json: { ok: false, error: "File too large (max 200MB)." }, status: :bad_request
       end
+    end
+
+    def monotonic_ms
+      (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000).round
     end
 
     def combine_usage(analysis_usage, script_usage)

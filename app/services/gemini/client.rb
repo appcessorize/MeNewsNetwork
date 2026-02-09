@@ -24,7 +24,12 @@ module Gemini
 
       unless response.success?
         Rails.logger.error("[gemini] API error: HTTP #{response.status} — #{response.body&.first(500)}")
-        raise "Gemini API error: HTTP #{response.status}"
+        raise Gemini::ApiError.new(
+          "Gemini API error: HTTP #{response.status}",
+          step: "generate_content",
+          http_status: response.status,
+          response_body: response.body
+        )
       end
 
       JSON.parse(response.body, symbolize_names: true)

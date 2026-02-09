@@ -186,6 +186,7 @@ fileInput.addEventListener("change", () => {
     btnAnalyze.disabled = false;
     btnCfUpload.disabled = false;
     log(`Selected: ${file.name}`, "info");
+    log(`File details: type=${file.type}, size=${file.size} bytes, lastModified=${new Date(file.lastModified).toISOString()}`, "info");
 
     const url = URL.createObjectURL(file);
     videoPreview.src = url;
@@ -234,8 +235,15 @@ btnAnalyze.addEventListener("click", async () => {
 
     const data = await uploadWithProgress(form);
 
+    log(`Response keys: ${Object.keys(data).join(", ")}`, "info");
+
+    if (data.debug) {
+      log(`DEBUG: ${JSON.stringify(data.debug)}`, "info");
+    }
+
     if (!data.ok) {
       log(`Server error: ${data.error}`, "err");
+      log(`Full error response: ${JSON.stringify(data)}`, "err");
       resultsEl.textContent = `Error: ${data.error}`;
       return;
     }
@@ -504,6 +512,8 @@ function uploadWithProgress(formData) {
     });
 
     xhr.addEventListener("load", () => {
+      log(`Response: HTTP ${xhr.status} ${xhr.statusText}, length=${xhr.responseText.length}`, "info");
+      log(`Response body (first 1000 chars): ${xhr.responseText.substring(0, 1000)}`, "info");
       try {
         const data = JSON.parse(xhr.responseText);
         resolve(data);
