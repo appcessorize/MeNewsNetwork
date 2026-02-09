@@ -3,7 +3,8 @@ module Debug
     before_action :require_login!
     before_action :require_admin!
     skip_forgery_protection only: [
-      :create_bulletin, :fetch_weather, :analyze_story, :serve_video, :build
+      :create_bulletin, :fetch_weather, :analyze_story, :serve_video, :build,
+      :start_render
     ]
 
     ADMIN_EMAIL = DebugController::ADMIN_EMAIL
@@ -16,7 +17,6 @@ module Debug
     end
 
     # POST /debug/mock_news/bulletins
-    # Lightweight — no files, just creates the bulletin shell
     def create_bulletin
       bulletin = DebugBulletin.create!(status: "draft")
 
@@ -29,7 +29,7 @@ module Debug
     end
 
     # POST /debug/mock_news/bulletins/:id/stories
-    # Receives ONE video, stages it, enqueues background analysis job, returns immediately
+    # Receives ONE video, uploads to R2, enqueues background analysis job
     def analyze_story
       bulletin = DebugBulletin.find(params[:id])
 
@@ -58,15 +58,22 @@ module Debug
         content_type: video.content_type
       )
 
-      # Copy tempfile to staging dir (tempfile is deleted after request ends)
-      FileUtils.mkdir_p(STAGING_DIR)
-      staging_path = STAGING_DIR.join("story_#{story.id}#{File.extname(video.original_filename)}")
-      FileUtils.cp(video.tempfile.path, staging_path)
-      story.update!(temp_file_path: staging_path.to_s)
+      # Upload to R2 if configured, otherwise fall back to local staging
+      r2 = Cloudflare::R2Client.new
+      if r2.configured?
+        r2_key = "stories/#{story.id}/video#{File.extname(video.original_filename)}"
+        r2.upload(r2_key, video.tempfile.path, content_type: video.content_type)
+        story.update!(r2_video_key: r2_key)
+        Rails.logger.info("[debug_news] Story ##{story.story_number} uploaded to R2 (#{(video.size / 1e6).round(1)} MB)")
+      else
+        # Fallback: local staging (existing behavior)
+        FileUtils.mkdir_p(STAGING_DIR)
+        staging_path = STAGING_DIR.join("story_#{story.id}#{File.extname(video.original_filename)}")
+        FileUtils.cp(video.tempfile.path, staging_path)
+        story.update!(temp_file_path: staging_path.to_s)
+        Rails.logger.info("[debug_news] Story ##{story.story_number} staged locally (#{(video.size / 1e6).round(1)} MB)")
+      end
 
-      Rails.logger.info("[debug_news] Story ##{story.story_number} staged (#{(video.size / 1e6).round(1)} MB), enqueuing job")
-
-      # Fire-and-forget: analysis + CF upload happens in background
       AnalyzeDebugStoryJob.perform_later(story.id)
 
       render json: {
@@ -84,7 +91,6 @@ module Debug
     end
 
     # GET /debug/mock_news/stories/:id/video
-    # Stable video URL — serves from ActiveStorage or temp file fallback
     def serve_video
       story = DebugStory.find(params[:id])
 
@@ -106,14 +112,12 @@ module Debug
       Rails.logger.info("[debug_news] Fetching weather for #{bulletin.location}...")
       raw_weather = Weather::OpenMeteoClient.new.fetch
 
-      # Generate weather report via Gemini (reuse existing weather prompt)
       generator = Gemini::ContentGenerator.new
       weather_result = generator.generate_json(
         VideoAnalysis::PromptBuilder.weather_prompt(raw_weather),
         temperature: 0.5
       )
 
-      # Generate weather narration via Gemini
       narration_result = generator.generate_json(
         DebugNews::PromptBuilder.weather_narration_prompt(raw_weather),
         temperature: 0.5
@@ -147,7 +151,7 @@ module Debug
           story_emoji: s.story_emoji,
           intro_text: s.intro_text,
           error_message: s.error_message,
-          video_ready: s.cloudflare_stream_uid.present? || s.temp_file_path.present?
+          video_ready: s.cloudflare_stream_uid.present? || s.r2_video_key.present? || s.temp_file_path.present?
         }
       end
 
@@ -210,6 +214,50 @@ module Debug
     rescue => e
       Rails.logger.error("[debug_news] Build failed: #{e.message}")
       render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # POST /debug/mock_news/bulletins/:id/render
+    def start_render
+      bulletin = DebugBulletin.find(params[:id])
+
+      unless bulletin.status == "ready"
+        return render json: { ok: false, error: "Bulletin must be built first (status: #{bulletin.status})" },
+                      status: :unprocessable_entity
+      end
+
+      if bulletin.render_in_progress?
+        return render json: { ok: false, error: "Render already in progress" }, status: :conflict
+      end
+
+      bulletin.update!(render_status: "queued", render_progress: 0, render_step: "Queued", render_error: nil)
+      RenderBulletinJob.perform_later(bulletin.id)
+
+      Rails.logger.info("[debug_news] Render enqueued for bulletin ##{bulletin.id}")
+      render json: { ok: true, render_status: "queued" }
+    rescue => e
+      Rails.logger.error("[debug_news] Start render failed: #{e.message}")
+      render json: { ok: false, error: e.message }, status: :internal_server_error
+    end
+
+    # GET /debug/mock_news/bulletins/:id/render_status
+    def render_status
+      bulletin = DebugBulletin.find(params[:id])
+
+      customer_code = Rails.configuration.x.cloudflare.customer_code
+      video_url = nil
+      if bulletin.rendered_video_uid.present? && customer_code.present?
+        video_url = "https://customer-#{customer_code}.cloudflarestream.com/#{bulletin.rendered_video_uid}/manifest/video.m3u8"
+      end
+
+      render json: {
+        ok: true,
+        render_status: bulletin.render_status,
+        render_progress: bulletin.render_progress || 0,
+        render_step: bulletin.render_step,
+        render_error: bulletin.render_error,
+        rendered_video_uid: bulletin.rendered_video_uid,
+        video_url: video_url
+      }
     end
 
     # GET /debug/mock_news/bulletins/:id.json

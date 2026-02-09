@@ -1,7 +1,7 @@
 # Nixpacks configuration for Coolify deployment
 
 [phases.setup]
-nixPkgs = ["libyaml"]
+nixPkgs = ["libyaml", "ffmpeg", "imagemagick", "noto-fonts-color-emoji"]
 aptPkgs = ["libsqlite3-dev"]
 
 [phases.install]

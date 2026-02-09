@@ -43,25 +43,9 @@ const QUESTIONS = [
   { key: "extra", text: "Anything else we should know?",  placeholder: "e.g. happened yesterday, birthday party...", skip: "No" }
 ];
 
-// ── Double-buffer HLS video player (state) ────
-const buffers = {
-  a: { el: null, hls: null, src: null, ready: false },
-  b: { el: null, hls: null, src: null, ready: false },
-};
-let front = null; // currently visible/playing buffer
-let back = null;  // hidden buffer for preloading
-
-function initBuffers() {
-  buffers.a.el = document.getElementById("video-a");
-  buffers.b.el = document.getElementById("video-b");
-  front = buffers.a;
-  back = buffers.b;
-}
-
 function init() {
   bindFileInput();
   bindButtons();
-  initBuffers();
   restoreSavedVideos();
   log("Mock News debug page ready.");
 }
@@ -87,7 +71,6 @@ function bindFileInput() {
   const input = document.getElementById("video-input");
   input.addEventListener("change", () => {
     Array.from(input.files).forEach(f => {
-      // Clone File so it survives input.value="" on iOS Safari
       const clone = new File([f], f.name, { type: f.type, lastModified: f.lastModified });
       collectedFiles.push(clone);
       const ctx = getContext(clone.name);
@@ -264,13 +247,10 @@ function bindButtons() {
   document.getElementById("btn-upload-videos").addEventListener("click", uploadAndAnalyze);
   document.getElementById("btn-fetch-weather").addEventListener("click", fetchWeather);
   document.getElementById("btn-build").addEventListener("click", buildBulletin);
-  document.getElementById("btn-play").addEventListener("click", playBulletin);
+  document.getElementById("btn-render")?.addEventListener("click", startRender);
   document.getElementById("btn-clear-log").addEventListener("click", () => {
     document.getElementById("event-log").textContent = "";
   });
-  document.getElementById("btn-player-pause")?.addEventListener("click", togglePause);
-  document.getElementById("btn-player-next")?.addEventListener("click", skipToNextSegment);
-  document.getElementById("btn-player-stop")?.addEventListener("click", stopPlayer);
 }
 
 // ── Upload & Analyze (fire-and-forget + poll) ───
@@ -305,14 +285,13 @@ async function uploadAndAnalyze() {
     document.getElementById("btn-fetch-weather").disabled = false;
 
     // 2. Upload each video (server returns immediately, analysis is background)
-    const fileMap = {}; // storyNumber -> filename
+    const fileMap = {};
     for (let i = 0; i < collectedFiles.length; i++) {
       const file = collectedFiles[i];
       const storyNumber = i + 1;
       const userContext = buildContextString(getContext(file.name));
       fileMap[storyNumber] = file.name;
 
-      // Show "uploading" status with 0%
       renderStoryStatus(statusList, {
         story_number: storyNumber,
         status: "uploading",
@@ -423,7 +402,6 @@ function startStatusPolling(statusList, fileMap) {
           showToast("All Analyzed", `${doneCount} stories ready to build`, "success");
         }
 
-        // Show toast for each completed story
         data.stories.forEach(s => {
           if (s.status === "done") {
             showToast("Story Analyzed", `${s.story_emoji || "✅"} ${s.story_title}`, "success");
@@ -444,7 +422,7 @@ function uploadWithProgress(url, formData, onProgress) {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
     xhr.setRequestHeader("X-CSRF-Token", csrfToken());
-    xhr.timeout = 600000; // 10 minutes
+    xhr.timeout = 600000;
 
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable && onProgress) {
@@ -562,8 +540,8 @@ async function buildBulletin() {
       masterJson = data.master;
       log("Bulletin built: " + masterJson.stories.length + " stories.");
       document.getElementById("master-json-output").textContent = JSON.stringify(masterJson, null, 2);
-      document.getElementById("btn-play").disabled = false;
-      showToast("Bulletin Ready", "Press Play!", "success");
+      document.getElementById("btn-render").disabled = false;
+      showToast("Bulletin Ready", "Press Render Video to start server-side rendering!", "success");
     } else {
       log("Build error: " + data.error);
       showToast("Build Failed", data.error, "error");
@@ -573,804 +551,131 @@ async function buildBulletin() {
 }
 
 // ══════════════════════════════════════════════
-//  BULLETIN PLAYER
+//  SERVER-SIDE RENDER
 // ══════════════════════════════════════════════
-let playerQueue = [];
-let playerIndex = 0;
-let playerPaused = false;
-let subtitleTimer = null;
-let studioTimeout = null;
-let bgMusic = null;
-let currentAudio = null;
+let renderPollTimer = null;
 
-// Preload caches
-const preloadedImages = new Map();  // url → Image element (loaded)
+async function startRender() {
+  if (!bulletinId) return log("ERROR: Build the bulletin first");
+  log("Starting server-side render...");
+  setButtonLoading("btn-render", true);
 
-// ── Activate player (responsive placement) ───
-function activatePlayer() {
-  const section = document.getElementById("player-section");
-  const screen = document.getElementById("player-screen");
-  const isMobile = window.matchMedia("(max-width: 767px)").matches;
+  try {
+    const resp = await fetch(`/debug/mock_news/bulletins/${bulletinId}/render`, {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrfToken(), "Accept": "application/json" }
+    });
+    const data = await resp.json();
 
-  section.classList.remove("hidden");
-
-  if (isMobile) {
-    document.getElementById("mobile-slot").appendChild(screen);
-    screen.style.cssText = "position:fixed;inset:0;z-index:50;display:block;";
-  } else {
-    document.getElementById("desktop-display").appendChild(screen);
-    screen.style.cssText = "width:100%;height:100%;display:block;position:relative;";
+    if (data.ok) {
+      log("Render job enqueued.");
+      showRenderProgress();
+      startRenderPolling();
+    } else {
+      log("Render error: " + data.error);
+      showToast("Render Failed", data.error, "error");
+      setButtonLoading("btn-render", false);
+    }
+  } catch (err) {
+    log("Render start failed: " + err.message);
+    showToast("Render Failed", err.message, "error");
+    setButtonLoading("btn-render", false);
   }
 }
 
-function deactivatePlayer() {
-  const screen = document.getElementById("player-screen");
-  const section = document.getElementById("player-section");
-  section.appendChild(screen);
-  screen.style.cssText = "display:none;";
-  section.classList.add("hidden");
+function showRenderProgress() {
+  const section = document.getElementById("render-progress-section");
+  if (section) section.classList.remove("hidden");
 }
 
-// ── Background Music ──────────────────────────
-function initBgMusic() {
-  bgMusic = document.getElementById("bg-music");
-  if (!bgMusic) return;
-  bgMusic.volume = 0;
-  bgMusic.currentTime = 0;
-}
+function startRenderPolling() {
+  if (renderPollTimer) clearInterval(renderPollTimer);
 
-function setBgMusicVolume(targetVol, fadeDuration = 500) {
-  if (!bgMusic) return;
-  const startVol = bgMusic.volume;
-  const startTime = performance.now();
+  renderPollTimer = setInterval(async () => {
+    try {
+      const resp = await fetch(`/debug/mock_news/bulletins/${bulletinId}/render_status`);
+      const data = await resp.json();
+      if (!data.ok) return;
 
-  if (bgMusic.paused && targetVol > 0) {
-    bgMusic.play().catch(err => console.warn("[bgMusic] play() failed:", err.message));
-  }
+      // Update progress bar
+      const bar = document.getElementById("render-bar");
+      const stepEl = document.getElementById("render-step");
+      const pctEl = document.getElementById("render-pct");
 
-  function fade(now) {
-    const elapsed = now - startTime;
-    const progress = Math.min(elapsed / fadeDuration, 1);
-    bgMusic.volume = Math.min(1, Math.max(0, startVol + (targetVol - startVol) * progress));
-    if (progress < 1) requestAnimationFrame(fade);
-    else if (targetVol === 0) bgMusic.pause();
-  }
-  requestAnimationFrame(fade);
-}
+      if (bar) bar.style.width = (data.render_progress || 0) + "%";
+      if (stepEl) stepEl.textContent = data.render_step || "Working...";
+      if (pctEl) pctEl.textContent = (data.render_progress || 0) + "%";
 
-// ── Double-buffer HLS video player (functions) ─
-function isHlsUrl(url) {
-  return url && (url.endsWith(".m3u8") || url.includes("/manifest/video.m3u8"));
-}
+      log(`[Render] ${data.render_progress}% — ${data.render_step}`);
 
-function attachSource(buf, src) {
-  detachSource(buf);
-  buf.src = src;
-  buf.ready = false;
+      if (data.render_status === "done") {
+        clearInterval(renderPollTimer);
+        renderPollTimer = null;
+        setButtonLoading("btn-render", false);
 
-  if (isHlsUrl(src)) {
-    // Prefer native HLS (Safari/iOS) — more reliable than hls.js on Apple
-    if (buf.el.canPlayType("application/vnd.apple.mpegurl")) {
-      buf.el.src = src;
-    } else if (Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: false });
-      buf.hls = hls;
-      hls.attachMedia(buf.el);
-      hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(src));
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        log(`[HLS] error: ${data.type} / ${data.details}`);
-        if (data.fatal) {
-          log(`[HLS] fatal — attempting recovery`);
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-          else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-          else detachSource(buf);
+        log("Render complete! Video UID: " + data.rendered_video_uid);
+        showToast("Render Complete", "Your bulletin video is ready!", "success");
+
+        if (data.video_url) {
+          showVideoPlayer(data.video_url);
         }
-      });
+      } else if (data.render_status === "failed") {
+        clearInterval(renderPollTimer);
+        renderPollTimer = null;
+        setButtonLoading("btn-render", false);
+
+        log("Render FAILED: " + data.render_error);
+        showToast("Render Failed", data.render_error || "Unknown error", "error");
+
+        if (stepEl) stepEl.textContent = "Failed: " + (data.render_error || "Unknown error");
+      }
+    } catch (err) {
+      log("Render poll error: " + err.message);
     }
-  } else {
-    // Local MP4
-    buf.el.src = src;
-  }
+  }, 3000);
 }
 
-function detachSource(buf) {
-  if (buf.hls) {
-    buf.hls.destroy();
-    buf.hls = null;
-  }
-  buf.el.removeAttribute("src");
-  buf.el.load(); // reset the element
-  buf.src = null;
-  buf.ready = false;
-}
+// ── Simple HLS Video Player ───────────────────
+let playerHls = null;
 
-function showBuffer(buf) { buf.el.style.visibility = "visible"; }
-function hideBuffer(buf) { buf.el.style.visibility = "hidden"; }
+function showVideoPlayer(videoUrl) {
+  const section = document.getElementById("player-section");
+  section.classList.remove("hidden");
+  section.scrollIntoView({ behavior: "smooth" });
 
-function preloadNext(src) {
-  if (back.src === src) {
-    log(`[Player] Already preloading: ${src.substring(0, 60)}...`);
-    return;
+  // Pick the visible video element (desktop or mobile)
+  const isMobile = window.matchMedia("(max-width: 767px)").matches;
+  const video = document.getElementById(isMobile ? "rendered-video-mobile" : "rendered-video");
+
+  if (playerHls) {
+    playerHls.destroy();
+    playerHls = null;
   }
 
-  log(`[Player] Preloading into back buffer: ${src.substring(0, 60)}...`);
-  attachSource(back, src);
-  back.el.muted = true;
-
-  function checkReady() {
-    back.ready = true;
-    log("[Player] Back buffer READY");
-  }
-
-  // For HLS via hls.js: FRAG_BUFFERED fires as segments download
-  if (back.hls) {
-    back.hls.on(Hls.Events.FRAG_BUFFERED, function h() {
-      if (back.ready) return;
-      const b = back.el.buffered;
-      if (b.length > 0 && b.end(0) >= 1.5) {
-        back.hls.off(Hls.Events.FRAG_BUFFERED, h);
-        checkReady();
+  if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    // Native HLS (Safari/iOS)
+    video.src = videoUrl;
+    video.play().catch(() => {});
+  } else if (Hls.isSupported()) {
+    playerHls = new Hls();
+    playerHls.loadSource(videoUrl);
+    playerHls.attachMedia(video);
+    playerHls.on(Hls.Events.MANIFEST_PARSED, () => {
+      video.play().catch(() => {});
+    });
+    playerHls.on(Hls.Events.ERROR, (_, data) => {
+      if (data.fatal) {
+        log("[Player] HLS fatal error: " + data.details);
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) playerHls.startLoad();
+        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) playerHls.recoverMediaError();
       }
     });
-  }
-
-  // For native HLS (Safari) and MP4: use canplay
-  back.el.addEventListener("canplay", function h() {
-    back.el.removeEventListener("canplay", h);
-    checkReady();
-  });
-}
-
-function playVideo(src, muted, onReady, onEnded) {
-  let readyFired = false;
-  let endedFired = false;
-  let timeoutId = null;
-  let retried = false;
-
-  function fireReady(via) {
-    if (readyFired) return;
-    readyFired = true;
-    if (timeoutId) clearTimeout(timeoutId);
-    log(`[Player] READY via: ${via}`);
-    onReady();
-  }
-
-  function fireEnded(via) {
-    if (endedFired) return;
-    endedFired = true;
-    if (timeoutId) clearTimeout(timeoutId);
-    log(`[Player] ENDED via: ${via}`);
-    onEnded();
-  }
-
-  // ── Fast path: back buffer already has this video loaded ──
-  if (back.src === src && back.ready) {
-    log("[Player] Fast path — swapping buffers");
-    try { front.el.pause(); } catch {}
-    hideBuffer(front);
-
-    [front, back] = [back, front];
-
-    showBuffer(front);
-    front.el.muted = muted;
-    front.el.currentTime = 0;
-
-    front.el.addEventListener("ended", function h() {
-      front.el.removeEventListener("ended", h);
-      fireEnded("ended");
-    });
-    front.el.addEventListener("error", function h() {
-      front.el.removeEventListener("error", h);
-      fireEnded("error");
-    });
-
-    front.el.play()
-      .then(() => fireReady("swap-play"))
-      .catch(() => fireReady("swap-play-fallback"));
-
-    timeoutId = setTimeout(() => {
-      log("[Player] TIMEOUT (5s fast-path) — force-firing ready");
-      fireReady("timeout");
-    }, 5000);
-    return;
-  }
-
-  // ── Slow path: load from scratch ──
-  log(`[Player] Slow path — loading: ${src.substring(0, 60)}...`);
-
-  try { front.el.pause(); } catch {}
-  hideBuffer(front);
-
-  [front, back] = [back, front];
-  detachSource(front);
-
-  attachSource(front, src);
-  showBuffer(front);
-  front.el.muted = muted;
-
-  // 15s timeout: retry once, then skip
-  timeoutId = setTimeout(() => {
-    if (!retried) {
-      retried = true;
-      log("[Player] TIMEOUT (15s) — retrying with fresh HLS instance");
-      detachSource(front);
-      attachSource(front, src);
-      front.el.muted = muted;
-
-      ["canplay", "loadeddata", "playing"].forEach(evt => {
-        front.el.addEventListener(evt, function h() {
-          front.el.removeEventListener(evt, h);
-          fireReady(evt);
-        });
-      });
-      front.el.addEventListener("ended", function h() {
-        front.el.removeEventListener("ended", h);
-        fireEnded("ended");
-      });
-
-      front.el.play().catch(err => log(`[Player] retry play() error: ${err?.message || err}`));
-
-      timeoutId = setTimeout(() => {
-        log("[Player] TIMEOUT (25s total) — skipping segment");
-        fireReady("timeout-skip");
-        setTimeout(() => fireEnded("timeout-skip"), 500);
-      }, 10000);
-    }
-  }, 15000);
-
-  ["canplay", "loadeddata", "playing"].forEach(evt => {
-    front.el.addEventListener(evt, function h() {
-      front.el.removeEventListener(evt, h);
-      fireReady(evt);
-    });
-  });
-
-  front.el.addEventListener("ended", function h() {
-    front.el.removeEventListener("ended", h);
-    fireEnded("ended");
-  });
-  front.el.addEventListener("error", function h(e) {
-    front.el.removeEventListener("error", h);
-    log(`[Player] ERROR: ${e?.message || "unknown"}`);
-    fireEnded("error");
-  });
-
-  front.el.play().catch(err => log(`[Player] play() error: ${err?.message || err}`));
-}
-
-function destroyPlayer() {
-  try { front.el.pause(); } catch {}
-  hideBuffer(front);
-  hideBuffer(back);
-  detachSource(front);
-  detachSource(back);
-}
-
-// ── TTS Audio (pre-generated, play from URL) ──
-function playTtsAudio(url, onPlaying) {
-  if (!url) return Promise.resolve();
-  stopTTS();
-  return new Promise((resolve) => {
-    const audio = new Audio(url);
-    currentAudio = audio;
-    let playingFired = false;
-    audio.addEventListener("playing", function handler() {
-      audio.removeEventListener("playing", handler);
-      if (!playingFired) {
-        playingFired = true;
-        log("[TTS] playing");
-        if (onPlaying) onPlaying();
-      }
-    });
-    audio.onended = () => { log("[TTS] ended"); currentAudio = null; resolve(); };
-    audio.onerror = (e) => { log(`[TTS] error: ${e?.message || "unknown"}`); currentAudio = null; resolve(); };
-    audio.play().catch((err) => { log(`[TTS] play() failed: ${err.message}`); currentAudio = null; resolve(); });
-  });
-}
-
-function stopTTS() {
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio = null;
-  }
-  window.speechSynthesis.cancel();
-}
-
-// ── Browser TTS (SpeechSynthesis API) ──────────
-function playBrowserTts(text, onPlaying) {
-  if (!text) return Promise.resolve();
-  stopTTS();
-  return new Promise((resolve) => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-
-    // Pick an English voice (prefer en-GB, then en-US, then default)
-    const voices = window.speechSynthesis.getVoices();
-    const enGB = voices.find(v => v.lang === "en-GB");
-    const enUS = voices.find(v => v.lang === "en-US");
-    if (enGB) utterance.voice = enGB;
-    else if (enUS) utterance.voice = enUS;
-
-    utterance.onstart = () => {
-      log("[BrowserTTS] speaking");
-      if (onPlaying) onPlaying();
-    };
-    utterance.onend = () => { log("[BrowserTTS] ended"); resolve(); };
-    utterance.onerror = (e) => { log(`[BrowserTTS] error: ${e?.error || "unknown"}`); resolve(); };
-
-    window.speechSynthesis.speak(utterance);
-  });
-}
-
-// ── News Ticker ───────────────────────────────
-function showTicker(headline) {
-  const ticker = document.getElementById("news-ticker");
-  const el = document.getElementById("ticker-headline");
-  if (!ticker) return;
-  if (el) el.textContent = headline || "";
-  ticker.style.display = "flex";
-}
-function hideTicker() {
-  const ticker = document.getElementById("news-ticker");
-  if (ticker) ticker.style.display = "none";
-}
-
-// ── Poster Display (from pre-computed URL) ────
-function showPoster(posterUrl) {
-  const canvas = document.getElementById("poster-canvas");
-  if (!canvas || !posterUrl) return;
-  const ctx = canvas.getContext("2d");
-
-  if (preloadedImages.has(posterUrl)) {
-    log("[Poster] Using preloaded image");
-    ctx.drawImage(preloadedImages.get(posterUrl), 0, 0, canvas.width, canvas.height);
-    return;
-  }
-
-  const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  img.onerror = () => {
-    ctx.fillStyle = "#1a1a2e";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  };
-  img.src = posterUrl;
-}
-
-// ── Weather Display ───────────────────────────
-function renderWeatherDisplay(weather) {
-  const container = document.getElementById("weather-display");
-  if (!container) return;
-
-  const report = weather?.report;
-  const narration = weather?.narration;
-
-  if (!report && !narration) {
-    container.innerHTML = '<div class="text-center text-white/50 text-sm">No weather data</div>';
-    return;
-  }
-
-  const emoji = narration?.weatherEmoji || report?.current?.emoji || "🌤️";
-  const headline = narration?.weatherHeadline || report?.headline || "Weather";
-  const temp = report?.current?.temp_c != null ? Math.round(report.current.temp_c) + "°C" : "";
-  const summary = report?.current?.summary || "";
-  const feelsLike = report?.current?.feels_like || "";
-  const wind = report?.current?.wind_kmh ? report.current.wind_kmh + " km/h" : "";
-
-  const dailyHtml = (report?.daily || []).slice(0, 5).map(d => `
-    <div class="text-center">
-      <div class="text-[10px] text-white/50 uppercase">${escapeHtml(d.day || "")}</div>
-      <div class="text-lg">${d.emoji || ""}</div>
-      <div class="text-xs">
-        <span class="text-red-300">${d.high_c != null ? Math.round(d.high_c) + "°" : ""}</span>
-        <span class="text-blue-300">${d.low_c != null ? Math.round(d.low_c) + "°" : ""}</span>
-      </div>
-    </div>
-  `).join("");
-
-  container.innerHTML = `
-    <div class="text-center mb-3">
-      <div class="text-4xl mb-1">${emoji}</div>
-      <div class="text-3xl font-bold">${escapeHtml(temp)}</div>
-      <div class="text-sm text-white/70 mt-1">${escapeHtml(summary)}</div>
-      <div class="text-xs text-white/40 mt-1">${escapeHtml(headline)}</div>
-    </div>
-    ${feelsLike || wind ? `
-      <div class="flex justify-center gap-4 text-xs text-white/50 mb-3">
-        ${feelsLike ? `<span>Feels ${escapeHtml(feelsLike)}</span>` : ""}
-        ${wind ? `<span>Wind ${escapeHtml(wind)}</span>` : ""}
-      </div>
-    ` : ""}
-    ${dailyHtml ? `<div class="flex justify-around px-1">${dailyHtml}</div>` : ""}
-  `;
-}
-
-// ── Subtitle Timer ────────────────────────────
-function startSubtitleTimer(subtitles) {
-  clearSubtitles();
-  if (!subtitles?.length) return;
-
-  const subtitleEl = document.getElementById("subtitle-text");
-  const startTime = performance.now();
-
-  subtitleTimer = setInterval(() => {
-    const elapsed = (performance.now() - startTime) / 1000;
-    const active = subtitles.find(s => elapsed >= s.start && elapsed <= s.end);
-    if (active) {
-      subtitleEl.textContent = active.text;
-      subtitleEl.style.display = "inline-block";
-    } else {
-      subtitleEl.style.display = "none";
-    }
-  }, 150);
-}
-
-function clearSubtitles() {
-  if (subtitleTimer) { clearInterval(subtitleTimer); subtitleTimer = null; }
-  const el = document.getElementById("subtitle-text");
-  if (el) el.style.display = "none";
-}
-
-// ── Build Playback Queue ──────────────────────
-function buildPlaybackQueue(master) {
-  const queue = [];
-
-  // Opening bumper
-  if (master.assets?.bumperUrl) {
-    queue.push({ type: "bumper", src: master.assets.bumperUrl, label: "Opening Bumper" });
-  }
-
-  // Per-story: studio intro → video
-  (master.stories || []).forEach(story => {
-    queue.push({
-      type: "studio",
-      mode: "story",
-      headline: story.studioHeadline || story.storyTitle,
-      emoji: story.storyEmoji,
-      ttsText: story.introText,
-      ttsUrl: story.ttsUrl,
-      subtitles: story.subtitleSegments,
-      posterUrl: story.posterUrl,
-      background: master.assets?.studioBgUrl,
-      label: "Intro: " + (story.storyTitle || "Story " + story.storyNumber)
-    });
-
-    if (story.videoUrl) {
-      queue.push({
-        type: "video",
-        src: story.videoUrl,
-        headline: story.studioHeadline || story.storyTitle,
-        label: "Video: " + (story.storyTitle || "Story " + story.storyNumber)
-      });
-    }
-  });
-
-  // Weather segment
-  const weather = master.weather;
-  if (weather?.report || weather?.narration) {
-    queue.push({
-      type: "studio",
-      mode: "weather",
-      weather: weather,
-      ttsText: weather?.narration?.weatherNarration,
-      ttsUrl: weather.ttsUrl,
-      subtitles: weather.narration?.subtitleSegments,
-      background: master.assets?.studioBgUrl,
-      label: "Weather Report"
-    });
-  }
-
-  // Closing bumper
-  if (master.assets?.bumperUrl) {
-    queue.push({ type: "bumper", src: master.assets.bumperUrl, label: "Closing Bumper" });
-  }
-
-  return queue;
-}
-
-// ── Preload Bulletin Assets ───────────────────
-async function preloadBulletin(master) {
-  const prepOverlay = document.getElementById("prep-overlay");
-  const prepBar = document.getElementById("prep-bar");
-  const prepStatus = document.getElementById("prep-status");
-  const prepDetail = document.getElementById("prep-detail");
-
-  prepOverlay.style.display = "flex";
-  prepBar.style.width = "0%";
-  prepStatus.textContent = "Preparing bulletin...";
-  prepDetail.textContent = "";
-
-  // Collect image URLs to preload (TTS now handled by browser SpeechSynthesis)
-  const imageUrls = [];
-
-  (master.stories || []).forEach(story => {
-    if (story.posterUrl) imageUrls.push(story.posterUrl);
-  });
-  if (master.assets?.studioBgUrl) imageUrls.push(master.assets.studioBgUrl);
-
-  // Total items: images + bgMusic(1)
-  const totalItems = imageUrls.length + 1;
-  let loadedItems = 0;
-
-  function updateProgress(detail) {
-    loadedItems++;
-    const pct = Math.round((loadedItems / totalItems) * 100);
-    prepBar.style.width = pct + "%";
-    prepDetail.textContent = detail;
-    log(`[Preload] (${loadedItems}/${totalItems}) ${detail}`);
-  }
-
-  // 1. Preload poster images + studio background
-  prepStatus.textContent = "Loading images...";
-  const imgPromises = imageUrls.map(url => {
-    return new Promise(resolve => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        preloadedImages.set(url, img);
-        updateProgress(`Image ready`);
-        resolve();
-      };
-      img.onerror = () => {
-        log(`[Preload] Image failed: ${url.substring(0, 60)}`);
-        updateProgress(`Image failed`);
-        resolve();
-      };
-      img.src = url;
-    });
-  });
-  await Promise.all(imgPromises);
-
-  // 2. Preload background music
-  prepStatus.textContent = "Loading music...";
-  initBgMusic();
-  if (bgMusic) {
-    await new Promise(resolve => {
-      if (bgMusic.readyState >= 4) {
-        updateProgress("Music ready");
-        resolve();
-        return;
-      }
-      bgMusic.addEventListener("canplaythrough", function handler() {
-        bgMusic.removeEventListener("canplaythrough", handler);
-        updateProgress("Music ready");
-        resolve();
-      }, { once: true });
-      bgMusic.addEventListener("error", function handler() {
-        bgMusic.removeEventListener("error", handler);
-        updateProgress("Music failed");
-        resolve();
-      }, { once: true });
-      bgMusic.load();
-    });
   } else {
-    updateProgress("No music element");
+    video.src = videoUrl;
+    video.play().catch(() => {});
   }
 
-  // 3. Kick off bumper prewarm (non-blocking)
-  preloadNext(master.assets.bumperUrl);
-
-  prepStatus.textContent = "Ready!";
-  prepBar.style.width = "100%";
-  log("[Preload] All assets loaded");
-  await new Promise(r => setTimeout(r, 400));
-  prepOverlay.style.display = "none";
-}
-
-// ── Play Bulletin ─────────────────────────────
-async function playBulletin() {
-  if (!masterJson) return log("ERROR: Build the bulletin first");
-
-  log("Starting bulletin playback...");
-  playerQueue = buildPlaybackQueue(masterJson);
-  playerIndex = 0;
-  playerPaused = false;
-
-  log("Queue: " + playerQueue.length + " segments");
-  playerQueue.forEach((seg, i) => log("  " + (i + 1) + ". [" + seg.type + "] " + seg.label));
-
-  activatePlayer();
-  document.getElementById("player-section").scrollIntoView({ behavior: "smooth" });
-
-  // Preload all assets before starting playback
-  await preloadBulletin(masterJson);
-
-  if (bgMusic) {
-    bgMusic.volume = 0.01;
-    bgMusic.play().catch(() => log("  bg music autoplay blocked"));
-  }
-  playNextSegment();
-}
-
-// ── Play Next Segment ─────────────────────────
-function playNextSegment() {
-  if (playerPaused) return;
-
-  if (playerIndex >= playerQueue.length) {
-    log("Bulletin playback complete.");
-    document.getElementById("player-segment-label").textContent = "Complete";
-    setBgMusicVolume(0, 1000);
-    showToast("Playback Complete", "The bulletin has finished.", "success");
-    setTimeout(() => stopPlayer(), 2000);
-    return;
-  }
-
-  const segment = playerQueue[playerIndex];
-  document.getElementById("player-segment-label").textContent =
-    `[${playerIndex + 1}/${playerQueue.length}] ${segment.label}`;
-  log("Segment " + (playerIndex + 1) + ": " + segment.label);
-
-  if (segment.type === "bumper") {
-    playBumperSegment(segment);
-  } else if (segment.type === "video") {
-    playVideoSegment(segment);
-  } else if (segment.type === "studio") {
-    showStudioSegment(segment);
-  }
-}
-
-// ── Bumper Segment (bg music full volume) ─────
-function playBumperSegment(segment) {
-  const overlay = document.getElementById("studio-overlay");
-
-  clearSubtitles();
-  stopTTS();
-  setBgMusicVolume(1.0, 300);
-  hideTicker();
-
-  const onReady = () => { overlay.style.display = "none"; };
-  const advance = () => { playerIndex++; playNextSegment(); };
-
-  playVideo(segment.src, true, onReady, advance);
-}
-
-// ── Video Segment (bg music off) ──────────────
-function playVideoSegment(segment) {
-  const overlay = document.getElementById("studio-overlay");
-
-  clearSubtitles();
-  stopTTS();
-  setBgMusicVolume(0, 500);
-  hideTicker();
-
-  const onReady = () => { overlay.style.display = "none"; };
-  const advance = () => { playerIndex++; playNextSegment(); };
-
-  playVideo(segment.src, false, onReady, advance);
-}
-
-// ── Studio Segment (TTS + bg music low) ───────
-async function showStudioSegment(segment) {
-  const overlay = document.getElementById("studio-overlay");
-
-  hideTicker();
-  destroyPlayer();
-  clearSubtitles();
-  setBgMusicVolume(0.18, 800);
-
-  overlay.style.display = "flex";
-  if (segment.background) overlay.style.backgroundImage = `url(${segment.background})`;
-
-  if (segment.mode === "story") {
-    document.getElementById("studio-story-content").style.display = "flex";
-    document.getElementById("studio-weather-content").style.display = "none";
-    document.getElementById("studio-emoji").textContent = segment.emoji || "";
-    document.getElementById("studio-headline").textContent = segment.headline || "";
-
-    // Clear poster canvas then load from pre-computed URL
-    const posterCanvas = document.getElementById("poster-canvas");
-    if (posterCanvas) {
-      const pctx = posterCanvas.getContext("2d");
-      pctx.fillStyle = "#1a1a2e";
-      pctx.fillRect(0, 0, posterCanvas.width, posterCanvas.height);
-    }
-    if (segment.posterUrl) showPoster(segment.posterUrl);
-
-  } else if (segment.mode === "weather") {
-    document.getElementById("studio-story-content").style.display = "none";
-    document.getElementById("studio-weather-content").style.display = "flex";
-    renderWeatherDisplay(segment.weather);
-  }
-
-  // Peek ahead: preload next video while TTS plays
-  const nextSeg = playerQueue[playerIndex + 1];
-  if (nextSeg && (nextSeg.type === "video" || nextSeg.type === "bumper")) {
-    preloadNext(nextSeg.src);
-  }
-
-  // Play browser TTS — show full text as subtitle while speaking
-  const ttsStart = Date.now();
-  await playBrowserTts(segment.ttsText, () => {
-    // onPlaying callback: speech has started — show full text as subtitle
-    if (segment.ttsText) {
-      const subtitleEl = document.getElementById("subtitle-text");
-      if (subtitleEl) {
-        subtitleEl.textContent = segment.ttsText;
-        subtitleEl.style.display = "inline-block";
-        log("[Studio] TTS speaking — showing subtitle");
-      }
-    }
-  });
-
-  const elapsed = Date.now() - ttsStart;
-  if (elapsed < 2500) await new Promise(r => setTimeout(r, 2500 - elapsed));
-
-  clearSubtitles();
-
-  if (!playerPaused) { playerIndex++; playNextSegment(); }
-}
-
-// ── Pause / Resume ────────────────────────────
-function togglePause() {
-  const btn = document.getElementById("btn-player-pause");
-  playerPaused = !playerPaused;
-
-  if (playerPaused) {
-    try { front.el.pause(); } catch {}
-    if (bgMusic && !bgMusic.paused) bgMusic.pause();
-    stopTTS();
-    window.speechSynthesis.cancel();
-    clearSubtitles();
-    if (studioTimeout) clearTimeout(studioTimeout);
-    btn.textContent = "▶";
-    log("Paused.");
-  } else {
-    if (bgMusic) bgMusic.play().catch(() => {});
-    const segment = playerQueue[playerIndex];
-    if (segment?.type === "video" || segment?.type === "bumper") {
-      try { front.el.play(); } catch {}
-    } else {
-      playerIndex++;
-      playNextSegment();
-    }
-    btn.textContent = "⏸";
-    log("Resumed.");
-  }
-}
-
-// ── Skip to Next Segment ──────────────────────
-function skipToNextSegment() {
-  if (!playerQueue.length) return;
-  log(`[Skip] Skipping segment ${playerIndex + 1}`);
-
-  stopTTS();
-  clearSubtitles();
-  destroyPlayer();
-
-  playerIndex++;
-  if (playerIndex < playerQueue.length) {
-    playNextSegment();
-  } else {
-    log("Bulletin playback complete (skipped to end).");
-    stopPlayer();
-  }
-}
-
-// ── Stop Player ───────────────────────────────
-function stopPlayer() {
-  destroyPlayer();
-
-  clearSubtitles();
-  stopTTS();
-  if (studioTimeout) clearTimeout(studioTimeout);
-
-  setBgMusicVolume(0, 300);
-  setTimeout(() => { if (bgMusic) { bgMusic.pause(); bgMusic.currentTime = 0; } }, 400);
-
-  document.getElementById("studio-overlay").style.display = "none";
-  hideTicker();
-  playerQueue = [];
-  playerIndex = 0;
-  playerPaused = false;
-
-  // Clear preload caches
-  preloadedImages.clear();
-  window.speechSynthesis.cancel();
-
-  deactivatePlayer();
-  document.getElementById("player-segment-label").textContent = "Ready";
-  log("Player stopped.");
+  log("[Player] Playing rendered bulletin: " + videoUrl.substring(0, 80));
 }
 
 // ── Apple-style Toast ─────────────────────────

@@ -6,6 +6,12 @@ Rails.configuration.x.cloudflare.account_id = ENV["CLOUDFLARE_ACCOUNT_ID"]
 Rails.configuration.x.cloudflare.api_token = ENV["CLOUDFLARE_API_TOKEN"]
 Rails.configuration.x.cloudflare.customer_code = ENV["CLOUDFLARE_STREAM_CUSTOMER_CODE"]
 
+# Cloudflare R2 (S3-compatible object storage)
+Rails.configuration.x.cloudflare.r2_bucket = ENV["CLOUDFLARE_R2_BUCKET"]
+Rails.configuration.x.cloudflare.r2_access_key_id = ENV["CLOUDFLARE_R2_ACCESS_KEY_ID"]
+Rails.configuration.x.cloudflare.r2_secret_access_key = ENV["CLOUDFLARE_R2_SECRET_ACCESS_KEY"]
+Rails.configuration.x.cloudflare.r2_endpoint = ENV["CLOUDFLARE_R2_ENDPOINT"]
+
 # Boot-time diagnostic logging for Cloudflare env vars
 %w[CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_STREAM_CUSTOMER_CODE].each do |var|
   val = ENV[var]

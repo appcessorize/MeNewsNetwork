@@ -71,139 +71,69 @@
     </div>
   </div>
 
-  <!-- 3. Build & Play Section -->
+  <!-- 3. Build & Render Section -->
   <div class="card bg-base-100 shadow-sm mb-6">
     <div class="card-body">
       <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
-        <span class="text-xl mr-1">🤖</span> Build & Play
+        <span class="text-xl mr-1">🎬</span> Build & Render
       </h2>
+      <p class="text-sm text-base-content/60">
+        Build the bulletin JSON, then render the final video server-side with FFmpeg.
+      </p>
 
       <div class="card-actions mt-4 flex-wrap gap-2">
         <button id="btn-build" class="btn btn-sm btn-accent" disabled>
           Build Bulletin JSON
         </button>
-        <button id="btn-play" class="btn btn-sm btn-success" disabled>
-          ▶ Play Bulletin
+        <button id="btn-render" class="btn btn-sm btn-success" disabled>
+          Render Video
         </button>
+      </div>
+
+      <!-- Render progress (hidden until render starts) -->
+      <div id="render-progress-section" class="mt-4 hidden">
+        <div class="flex items-center justify-between mb-2">
+          <span id="render-step" class="text-sm text-base-content/70">Queued...</span>
+          <span id="render-pct" class="text-sm font-mono text-base-content/50">0%</span>
+        </div>
+        <div class="w-full bg-base-200 rounded-full h-3 overflow-hidden">
+          <div id="render-bar"
+               class="h-full bg-success rounded-full transition-all duration-500"
+               style="width: 0%;"></div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 4. Player Section (hidden until play) -->
+  <!-- 4. Player Section (hidden until render complete) -->
   <div id="player-section" class="mb-6 hidden">
-    <!-- Desktop: mockup-phone container -->
-    <div id="desktop-slot" class="hidden md:flex justify-center py-4">
-      <div class="mockup-phone border-base-300">
-        <div class="mockup-phone-camera"></div>
-        <div class="mockup-phone-display bg-black" id="desktop-display"
-             style="width:375px;height:812px;overflow:hidden;"></div>
-      </div>
-    </div>
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body">
+        <h2 class="card-title text-sm uppercase tracking-wider text-base-content/50">
+          <span class="text-xl mr-1">📺</span> Rendered Bulletin
+        </h2>
 
-    <!-- Mobile: fullscreen container -->
-    <div id="mobile-slot" class="md:hidden"></div>
-
-    <!-- Player screen (JS moves this into the active slot) -->
-    <div id="player-screen" class="relative bg-black overflow-hidden">
-      <!-- Background music -->
-      <audio id="bg-music" src="/bgmusic.mp3" loop preload="auto"></audio>
-
-      <!-- Studio overlay -->
-      <div id="studio-overlay" class="absolute inset-0 z-10 flex flex-col"
-           style="display: none; background-size: cover; background-position: center;">
-
-        <!-- Top bar: branding -->
-        <div class="p-3 pt-5">
-          <div class="flex items-center gap-2">
-            <span class="text-white font-black text-sm italic tracking-tight opacity-70">MOCK NEWS</span>
-            <span class="inline-flex items-center gap-1 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
-              <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span> LIVE
-            </span>
-          </div>
-        </div>
-
-        <!-- Story intro content (robot LEFT, poster RIGHT) -->
-        <div id="studio-story-content" class="flex-1 flex items-center justify-center px-4" style="display: none;">
-          <div class="flex items-center gap-5">
-            <!-- Robot newsreader (left) -->
-            <div class="flex flex-col items-center shrink-0">
-              <div class="text-5xl">🤖</div>
-              <div class="text-white/30 text-[8px] mt-1 tracking-widest uppercase">Newsreader</div>
-            </div>
-            <!-- Video poster square (right, bigger) -->
-            <div class="relative w-44 h-44 bg-white/10 rounded-xl overflow-hidden border border-white/20 shadow-2xl shrink-0">
-              <canvas id="poster-canvas" width="176" height="176" class="w-full h-full object-cover"></canvas>
-              <!-- Emoji + title inside poster, bottom overlay -->
-              <div class="absolute bottom-0 left-0 right-0 bg-gray-300/30 backdrop-blur-sm px-2.5 py-1.5">
-                <div class="flex items-center gap-1.5">
-                  <span id="studio-emoji" class="text-base shrink-0"></span>
-                  <span id="studio-headline" class="text-white font-bold text-[11px] uppercase tracking-tight leading-tight truncate"></span>
-                </div>
-              </div>
+        <!-- Desktop: mockup-phone container -->
+        <div class="hidden md:flex justify-center py-4">
+          <div class="mockup-phone border-base-300">
+            <div class="mockup-phone-camera"></div>
+            <div class="mockup-phone-display bg-black"
+                 style="width:375px;height:812px;overflow:hidden;">
+              <video id="rendered-video"
+                     style="width:100%;height:100%;object-fit:cover;"
+                     playsinline controls></video>
             </div>
           </div>
         </div>
 
-        <!-- Weather content -->
-        <div id="studio-weather-content" class="flex-1 flex flex-col justify-center px-5" style="display: none;">
-          <div id="weather-display" class="text-white"></div>
-        </div>
-
-        <!-- Subtitle area (above controls) -->
-        <div class="p-4 pb-14 bg-gradient-to-t from-black/80 via-black/30 to-transparent">
-          <div id="subtitle-bar" class="text-center min-h-[44px] flex items-center justify-center">
-            <span id="subtitle-text"
-                  class="bg-black/60 text-white px-3 py-1.5 rounded-lg text-sm inline-block font-medium leading-snug backdrop-blur-sm"
-                  style="display: none; max-width: 95%;"></span>
+        <!-- Mobile: full-width video -->
+        <div class="md:hidden mt-4">
+          <div class="aspect-[9/16] bg-black rounded-xl overflow-hidden max-h-[80vh] mx-auto" style="max-width: 400px;">
+            <video id="rendered-video-mobile"
+                   style="width:100%;height:100%;object-fit:cover;"
+                   playsinline controls></video>
           </div>
         </div>
-      </div>
-
-      <!-- News ticker bar -->
-      <div id="news-ticker" class="absolute left-0 right-0 z-[15] flex items-center px-3"
-           style="display: none; bottom: 5%;">
-        <div class="flex items-center w-full bg-white/95 overflow-hidden" style="height: 28px;">
-          <div class="bg-red-600 text-white font-black text-[10px] italic tracking-tight px-2 shrink-0 uppercase h-full flex items-center">
-            ME NEWS
-          </div>
-          <div class="flex-1 min-w-0 px-2">
-            <span id="ticker-headline" class="text-[11px] font-semibold text-gray-800 truncate block"></span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Preparation overlay (shown during preload phase) -->
-      <div id="prep-overlay" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black"
-           style="display: none;">
-        <div class="text-center px-6 w-full max-w-xs">
-          <div class="text-4xl mb-4">📺</div>
-          <h2 class="text-white font-black text-lg italic tracking-tight mb-1">MOCK NEWS</h2>
-          <p id="prep-status" class="text-white/60 text-sm mb-4">Preparing bulletin...</p>
-          <div class="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-            <div id="prep-bar" class="h-full bg-red-500 rounded-full transition-all duration-300" style="width: 0%;"></div>
-          </div>
-          <p id="prep-detail" class="text-white/40 text-xs mt-2"></p>
-        </div>
-      </div>
-
-      <!-- Double-buffer video elements (visibility:hidden not display:none to allow preloading) -->
-      <video id="video-b"
-             style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;visibility:hidden;"
-             playsinline preload="auto"></video>
-
-      <video id="video-a"
-             style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;visibility:hidden;"
-             playsinline preload="auto"></video>
-
-      <!-- Inline player controls -->
-      <div class="absolute bottom-0 left-0 right-0 z-30 p-2 flex items-center gap-2"
-           style="background: linear-gradient(transparent, rgba(0,0,0,0.5));">
-        <button id="btn-player-pause" class="btn btn-xs btn-circle btn-ghost text-white/80">⏸</button>
-        <div class="flex-1 text-[10px] text-white/50 truncate">
-          <span id="player-segment-label">Ready</span>
-        </div>
-        <button id="btn-player-next" class="btn btn-xs btn-circle btn-ghost text-white/60">⏭</button>
-        <button id="btn-player-stop" class="btn btn-xs btn-circle btn-ghost text-white/60">✕</button>
       </div>
     </div>
   </div>

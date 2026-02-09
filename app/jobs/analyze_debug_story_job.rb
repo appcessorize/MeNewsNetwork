@@ -5,11 +5,9 @@ class AnalyzeDebugStoryJob < ApplicationJob
 
   def perform(debug_story_id)
     story = DebugStory.find(debug_story_id)
-    staging_path = story.temp_file_path
 
-    unless staging_path.present? && File.exist?(staging_path)
-      raise "No staging file at #{staging_path} for story ##{story.id}"
-    end
+    # Resolve video source: R2, local staging, or error
+    staging_path = resolve_video_path(story)
 
     t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     Rails.logger.info("[debug_news] Job: Analyzing story ##{story.story_number} (id=#{story.id})")
@@ -70,7 +68,10 @@ class AnalyzeDebugStoryJob < ApplicationJob
 
     # 6. Cleanup
     file_manager.delete_file(gemini_file[:name])
-    cleanup_staging_file(staging_path) if cf_uid.present?
+    # Only clean up local staging file if we have a copy in R2 or CF
+    if story.r2_video_key.present? || cf_uid.present?
+      cleanup_staging_file(staging_path) unless staging_path == story.temp_file_path && story.r2_video_key.blank?
+    end
 
     total = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0).round(1)
     Rails.logger.info("[debug_news] Story ##{story.story_number} fully processed in #{total}s")
@@ -82,6 +83,27 @@ class AnalyzeDebugStoryJob < ApplicationJob
   end
 
   private
+
+  def resolve_video_path(story)
+    # If video is in R2, download it to a temp file for Gemini upload
+    if story.r2_video_key.present?
+      r2 = Cloudflare::R2Client.new
+      tmp_dir = Rails.root.join("tmp", "debug_videos")
+      FileUtils.mkdir_p(tmp_dir)
+      ext = File.extname(story.original_filename || ".mp4")
+      local_path = tmp_dir.join("story_#{story.id}_r2#{ext}").to_s
+      r2.download(story.r2_video_key, local_path)
+      Rails.logger.info("[debug_news] Downloaded from R2: #{story.r2_video_key}")
+      return local_path
+    end
+
+    # Fall back to local staging file
+    path = story.temp_file_path
+    unless path.present? && File.exist?(path)
+      raise "No video source for story ##{story.id} (no R2 key, no staging file)"
+    end
+    path
+  end
 
   def upload_to_cloudflare(story, staging_path)
     cf_client = Cloudflare::StreamClient.new
@@ -131,6 +153,17 @@ class AnalyzeDebugStoryJob < ApplicationJob
     Rails.logger.info("[debug_news] Generating TTS for story ##{story.story_number}...")
     pcm = Gemini::TtsGenerator.new.generate(text: story.intro_text, voice: "Orus")
     wav = Audio::WavBuilder.build(pcm)
+
+    # Upload TTS to R2 if configured
+    r2 = Cloudflare::R2Client.new
+    if r2.configured?
+      r2_key = "stories/#{story.id}/tts.wav"
+      r2.upload(r2_key, StringIO.new(wav), content_type: "audio/wav")
+      story.update!(r2_tts_key: r2_key)
+      Rails.logger.info("[debug_news] TTS uploaded to R2 for story ##{story.story_number}")
+    end
+
+    # Also attach via ActiveStorage for backward compat (master_json ttsUrl)
     story.tts_audio.attach(
       io: StringIO.new(wav),
       filename: "story_#{story.id}_tts.wav",

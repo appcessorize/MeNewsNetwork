@@ -28,6 +28,8 @@ Rails.application.routes.draw do
     get  "mock_news/stories/:id/video",     to: "debug/mock_news#serve_video"
     get  "mock_news/bulletins/:id/status",  to: "debug/mock_news#status"
     post "mock_news/bulletins/:id/build",   to: "debug/mock_news#build"
+    post "mock_news/bulletins/:id/render",  to: "debug/mock_news#start_render"
+    get  "mock_news/bulletins/:id/render_status", to: "debug/mock_news#render_status"
     get  "mock_news/bulletins/:id",         to: "debug/mock_news#show_bulletin",
                                             defaults: { format: :json }
   end

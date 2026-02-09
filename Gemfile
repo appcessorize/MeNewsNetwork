@@ -28,6 +28,12 @@ gem "active_storage_db"
 # Email via Resend
 gem "resend"
 
+# Image processing (studio frame compositing)
+gem "mini_magick", "~> 4.12"
+
+# S3-compatible client for Cloudflare R2
+gem "aws-sdk-s3", "~> 1.0"
+
 # Persistent database-backed job queue
 gem "solid_queue"
 
