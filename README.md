@@ -1,5 +1,8 @@
 # Me News — The 1st AI-Powered Social Media
 
+**Live:** [menews.network](https://menews.network)
+**Demo video:** [Watch on YouTube](https://www.youtube.com/shorts/cu0CswlHZYQ)
+
 ## Inspiration
 
 Social media is incredible, but it has a scale problem. When it gets big, a few winners capture all the attention, and everyone else gets the downsides: an endless feed, performative posting, and a weird feeling that you're consuming "content" more than you're connecting with people.

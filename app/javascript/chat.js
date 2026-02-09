@@ -14,6 +14,8 @@ const STATE = {
   TEST_ASKING_NAME: "test_asking_name",
   TEST_WAITING_VIDEO: "test_waiting_video",
   TEST_GENERATING_BULLETIN: "test_generating_bulletin",
+  TEST_MULTI_UPLOAD: "test_multi_upload",
+  TEST_MULTI_CHOOSING: "test_multi_choosing",
 };
 
 const JOURNALIST_QUESTIONS = [
@@ -52,6 +54,9 @@ let GROUP_MEMBERS = [];
 let bulletinMode = false;
 let isTestUser = false;
 let testUserName = "";
+let testMultiMode = false;
+let testBulletinId = null;
+let testVideoCount = 0;
 
 // ── Init ─────────────────────────────────────
 function init() {
@@ -162,7 +167,7 @@ function initMediaButtons() {
 
   if (btnVideo && videoPicker) {
     btnVideo.addEventListener("click", () => {
-      if (state !== STATE.IDLE && state !== STATE.TEST_WAITING_VIDEO) return;
+      if (state !== STATE.IDLE && state !== STATE.TEST_WAITING_VIDEO && state !== STATE.TEST_MULTI_UPLOAD) return;
       videoPicker.click();
     });
     videoPicker.addEventListener("change", (e) => {
@@ -175,7 +180,7 @@ function initMediaButtons() {
 function updateToolbarState() {
   const btnVideo = document.getElementById("btn-video");
 
-  const disabled = state !== STATE.IDLE && state !== STATE.TEST_WAITING_VIDEO;
+  const disabled = state !== STATE.IDLE && state !== STATE.TEST_WAITING_VIDEO && state !== STATE.TEST_MULTI_UPLOAD;
   if (btnVideo) btnVideo.style.opacity = disabled ? "0.3" : "1";
 
   updateSkipButton();
@@ -441,7 +446,7 @@ async function handleTextSubmission(text) {
 
 // ── Media Flow (Background Upload) ──────────
 async function handleMediaSelected(file, type) {
-  if (state === STATE.TEST_WAITING_VIDEO && type === "video") {
+  if ((state === STATE.TEST_WAITING_VIDEO || state === STATE.TEST_MULTI_UPLOAD) && type === "video") {
     handleMediaSelectedTestUser(file);
     return;
   }
@@ -675,6 +680,14 @@ async function contributeToBulletin() {
       return;
     }
 
+    if (isTestUser && testMultiMode) {
+      testVideoCount++;
+      testBulletinId = data.bulletin_id;
+      await appendBotMessage(`Video ${testVideoCount} submitted! You can add more videos or generate your multi-story bulletin now.`);
+      showMultiUploadChoiceButtons();
+      return;
+    }
+
     if (isTestUser) {
       await appendBotMessage("Your video has been submitted! Now let's generate your bulletin video.");
       showGenerateBulletinButton(data.bulletin_id);
@@ -808,6 +821,9 @@ function resetState() {
   analysisComplete = false;
   questionsComplete = false;
   storyGenerationStarted = false;
+  testMultiMode = false;
+  testBulletinId = null;
+  testVideoCount = 0;
   hideSuggestionPills();
   updateToolbarState();
 }
@@ -928,11 +944,20 @@ async function pollBulletinRender(bulletinId, typing) {
         clearInterval(poll);
         typing.remove();
         await showBulletinVideo(data.video_url);
-        await appendBotMessage(
-          `Thanks for your time, ${testUserName || "friend"}! ` +
-          "Please check out more of the app \u2014 we're trying to make media social again."
-        );
-        resetState();
+
+        if (testMultiMode) {
+          await appendBotMessage(
+            `Here's your multi-story bulletin, ${testUserName || "friend"}! ` +
+            "Thanks for trying out the full experience."
+          );
+          resetState();
+        } else {
+          await appendBotMessage(
+            `There you go, ${testUserName || "friend"}! That was a single-story bulletin. ` +
+            "Want to see what a multi-story report looks like? Upload a few more videos and we'll generate a full bulletin."
+          );
+          showMakeYourOwnReportButton();
+        }
       } else if (data.render_status === "failed") {
         clearInterval(poll);
         typing.remove();
@@ -994,6 +1019,100 @@ async function showBulletinVideo(videoUrl) {
   container.appendChild(wrapper);
   animateIn(wrapper);
   scrollToBottom();
+}
+
+// ── Multi-Video "Make Your Own Report" ───────
+function showMakeYourOwnReportButton() {
+  state = STATE.IDLE;
+  updateToolbarState();
+
+  const container = document.getElementById("chat-messages");
+  if (!container) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "flex justify-center py-3";
+
+  const btn = document.createElement("button");
+  btn.className = "btn btn-primary btn-lg gap-2";
+  btn.innerHTML = `<span>Make Your Own Report</span>`;
+  btn.addEventListener("click", () => {
+    btn.closest(".flex")?.remove();
+    startMultiUploadMode();
+  });
+
+  wrapper.appendChild(btn);
+  container.appendChild(wrapper);
+  animateIn(wrapper);
+  scrollToBottom();
+}
+
+async function startMultiUploadMode() {
+  testMultiMode = true;
+  testBulletinId = null;
+  testVideoCount = 0;
+
+  await appendBotMessage(
+    "Let's make a multi-story bulletin! Upload your first video using the video button below. " +
+    "You can add as many stories as you like, then generate the full report."
+  );
+
+  state = STATE.TEST_MULTI_UPLOAD;
+  updateToolbarState();
+}
+
+function showMultiUploadChoiceButtons() {
+  state = STATE.TEST_MULTI_CHOOSING;
+  updateToolbarState();
+
+  const container = document.getElementById("chat-messages");
+  if (!container) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "flex justify-center gap-3 py-3";
+
+  const addBtn = document.createElement("button");
+  addBtn.className = "btn btn-outline btn-md gap-2";
+  addBtn.innerHTML = `<span>Add Another Video</span>`;
+  addBtn.addEventListener("click", () => {
+    wrapper.remove();
+    resetForNextVideo();
+  });
+
+  const makeBtn = document.createElement("button");
+  makeBtn.className = "btn btn-primary btn-md gap-2";
+  makeBtn.innerHTML = `<span>Make Video</span>`;
+  makeBtn.addEventListener("click", () => {
+    wrapper.remove();
+    makeBtn.disabled = true;
+    generateTestBulletin(testBulletinId);
+  });
+
+  wrapper.appendChild(addBtn);
+  wrapper.appendChild(makeBtn);
+  container.appendChild(wrapper);
+  animateIn(wrapper);
+  scrollToBottom();
+}
+
+function resetForNextVideo() {
+  // Reset per-video state but keep multi-mode variables
+  currentAnalysis = null;
+  currentSessionId = null;
+  currentMediaFile = null;
+  currentMediaType = null;
+  contextAnswers = {};
+  contextQuestionIndex = 0;
+  followUpQuestions = [];
+  followUpIndex = 0;
+  analysisPromise = null;
+  analysisComplete = false;
+  questionsComplete = false;
+  storyGenerationStarted = false;
+
+  state = STATE.TEST_MULTI_UPLOAD;
+  updateToolbarState();
+
+  appendBotMessage("Upload your next video using the video button below.");
 }
 
 // ── Utility ──────────────────────────────────
