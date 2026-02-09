@@ -5,6 +5,7 @@ class BulletinRenderer
   class RenderError < StandardError; end
 
   RESOLUTION = "1080x1920"
+  FPS = 30
   VIDEO_CODEC = "-c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p"
   AUDIO_CODEC = "-c:a aac -ar 48000 -ac 2 -b:a 128k"
   SILENT_AUDIO = "-f lavfi -i anullsrc=r=48000:cl=stereo"
@@ -47,6 +48,7 @@ class BulletinRenderer
     # Opening bumper
     if bumper_path
       bumper_seg = render_bumper_segment(bumper_path, "opening")
+      log_segment_duration(bumper_seg, "opening bumper")
       segment_paths << { path: bumper_seg, type: :bumper }
     end
 
@@ -58,11 +60,13 @@ class BulletinRenderer
 
       # Studio intro segment
       studio_seg = render_studio_segment(story, inputs, studio_bg)
+      log_segment_duration(studio_seg, "studio story #{story.story_number}")
       segment_paths << { path: studio_seg, type: :studio }
 
       # User video segment
       if inputs[:video]
         video_seg = render_user_video_segment(inputs[:video], story)
+        log_segment_duration(video_seg, "user video story #{story.story_number}")
         segment_paths << { path: video_seg, type: :user_video }
       end
     end
@@ -71,12 +75,14 @@ class BulletinRenderer
     if weather_inputs[:tts]
       update_progress(65, "Rendering weather segment")
       weather_seg = render_weather_segment(weather_inputs, studio_bg)
+      log_segment_duration(weather_seg, "weather")
       segment_paths << { path: weather_seg, type: :studio }
     end
 
     # Closing bumper
     if bumper_path
       closing_seg = render_bumper_segment(bumper_path, "closing")
+      log_segment_duration(closing_seg, "closing bumper")
       segment_paths << { path: closing_seg, type: :bumper }
     end
 
@@ -236,7 +242,8 @@ class BulletinRenderer
       SILENT_AUDIO,
       "-map 0:v:0 -map 1:a:0",
       "-t 10",  # Cap bumper at 10s
-      "-vf 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black'",
+      "-vf 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=#{FPS}'",
+      "-r #{FPS}",
       VIDEO_CODEC,
       "-shortest",
       AUDIO_CODEC,
@@ -268,10 +275,11 @@ class BulletinRenderer
       # Use explicit -t to cap at TTS duration (-shortest is unreliable with -loop 1)
       cmd = [
         "ffmpeg -y",
-        "-loop 1 -framerate 24 -i #{esc(frame_path)}",
+        "-loop 1 -framerate #{FPS} -i #{esc(frame_path)}",
         "-i #{esc(inputs[:tts])}",
-        "-vf scale=1080:1920,fps=24",
+        "-vf scale=1080:1920,fps=#{FPS}",
         "-t #{tts_duration.round(2)}",
+        "-r #{FPS}",
         VIDEO_CODEC,
         AUDIO_CODEC,
         esc(output)
@@ -280,9 +288,10 @@ class BulletinRenderer
       # No TTS — 5 second static frame with silent audio
       cmd = [
         "ffmpeg -y",
-        "-loop 1 -framerate 24 -t 5 -i #{esc(frame_path)}",
+        "-loop 1 -framerate #{FPS} -t 5 -i #{esc(frame_path)}",
         SILENT_AUDIO,
-        "-vf scale=1080:1920",
+        "-vf scale=1080:1920,fps=#{FPS}",
+        "-r #{FPS}",
         VIDEO_CODEC,
         AUDIO_CODEC,
         "-t 5 -shortest",
@@ -298,10 +307,11 @@ class BulletinRenderer
     story_dir = File.join(@work_dir, "story_#{story.id}")
     output = File.join(story_dir, "user_video.mp4")
 
-    # Scale/pad to 1080x1920, keep original audio
+    # Scale/pad to 1080x1920, force 30fps CFR, keep original audio
     cmd = [
       "ffmpeg -y -i #{esc(video_path)}",
-      "-vf 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black'",
+      "-vf 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=#{FPS}'",
+      "-r #{FPS}",
       VIDEO_CODEC,
       AUDIO_CODEC,
       esc(output)
@@ -345,10 +355,11 @@ class BulletinRenderer
 
     cmd = [
       "ffmpeg -y",
-      "-loop 1 -framerate 24 -i #{esc(frame_path)}",
+      "-loop 1 -framerate #{FPS} -i #{esc(frame_path)}",
       "-i #{esc(weather_inputs[:tts])}",
-      "-vf scale=1080:1920,fps=24",
+      "-vf scale=1080:1920,fps=#{FPS}",
       "-t #{tts_duration.round(2)}",
+      "-r #{FPS}",
       VIDEO_CODEC,
       AUDIO_CODEC,
       esc(output)
@@ -366,7 +377,7 @@ class BulletinRenderer
     File.write(concat_list, paths.map { |p| "file '#{p}'" }.join("\n"))
 
     output = File.join(@work_dir, "concat.mp4")
-    cmd = "ffmpeg -y -f concat -safe 0 -i #{esc(concat_list)} #{VIDEO_CODEC} #{AUDIO_CODEC} #{esc(output)}"
+    cmd = "ffmpeg -y -f concat -safe 0 -i #{esc(concat_list)} -c copy #{esc(output)}"
     @ffmpeg.run(cmd, label: "concat")
     output
   end
@@ -384,14 +395,16 @@ class BulletinRenderer
     # Calculate segment durations and build volume automation
     volume_expr = build_volume_filter(segment_infos)
 
-    filter = "#{volume_expr}[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+    # Write filter graph to a temp file to avoid shell-escaping issues
+    filter_file = File.join(@work_dir, "music_filter.txt")
+    File.write(filter_file, "#{volume_expr}[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[aout]")
 
     cmd = [
       "ffmpeg -y",
       "-i #{esc(concat_path)}",
       "-stream_loop -1 -i #{esc(BG_MUSIC_PATH)}",
-      "-filter_complex \"#{filter}\"",
-      "-map 0:v:0 -map \"[aout]\"",
+      "-filter_complex_script #{esc(filter_file)}",
+      "-map 0:v:0 -map [aout]",
       "-c:v copy",
       AUDIO_CODEC,
       esc(output)
@@ -421,9 +434,9 @@ class BulletinRenderer
 
     # Build a single nested if() expression for the volume filter
     # Innermost fallback is 0.18 (default)
-    # Commas inside if()/between() must be escaped with \ for FFmpeg filter syntax
+    # No backslash escaping needed — filter_complex_script reads from file, not shell
     expr = ranges.reverse.reduce("0.18") do |fallback, r|
-      "if(between(t\\,#{r[:start]}\\,#{r[:finish]})\\,#{r[:vol]}\\,#{fallback})"
+      "if(between(t,#{r[:start]},#{r[:finish]}),#{r[:vol]},#{fallback})"
     end
 
     "[1:a]volume=#{expr}"
@@ -469,6 +482,12 @@ class BulletinRenderer
     end
   rescue => e
     Rails.logger.warn("[Render] Cleanup failed: #{e.message}")
+  end
+
+  def log_segment_duration(path, label)
+    dur = @ffmpeg.probe_duration(path)
+    log("[Render] #{label} duration: #{dur.round(2)}s")
+    dur
   end
 
   def esc(path)
