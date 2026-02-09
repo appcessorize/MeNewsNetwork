@@ -5,6 +5,7 @@ class BulletinRenderer
     WIDTH = 1080
     HEIGHT = 1920
     FONT_BOLD = Rails.root.join("app", "assets", "fonts", "Inter-Bold.ttf").to_s
+    FONT_BOLD_ITALIC = Rails.root.join("app", "assets", "fonts", "Inter-BoldItalic.ttf").to_s
     FONT_REGULAR = Rails.root.join("app", "assets", "fonts", "Inter-Regular.ttf").to_s
     ACCENT_COLOR = "#E63946"
 
@@ -206,24 +207,39 @@ class BulletinRenderer
         end
       end
 
-      # Top-left: ME NEWS in red
+      # Top-left: "DAILY UPDATE" bold italic red on white background
+      logo_bar_height = 60
+      logo_bar = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "300x#{logo_bar_height}"
+          cmd.merge! ["xc:rgba(255,255,255,0.92)"]
+          cmd << f.path
+        end
+      end
+      canvas = canvas.composite(logo_bar) do |c|
+        c.compose "Over"
+        c.gravity "NorthWest"
+        c.geometry "+30+70"
+      end
+
       logo = render_text_image(
-        "ME NEWS",
-        size: 36,
-        width: 400,
-        height: 60,
-        font: FONT_BOLD,
+        "DAILY UPDATE",
+        size: 32,
+        width: 280,
+        height: logo_bar_height - 10,
+        font: FONT_BOLD_ITALIC,
         color: ACCENT_COLOR,
         gravity: "West"
       )
       canvas = canvas.composite(logo) do |c|
         c.compose "Over"
         c.gravity "NorthWest"
-        c.geometry "+40+80"
+        c.geometry "+40+75"
       end
 
-      # Bottom bar: white background, "TODAY'S UPDATE" in black
+      # Bottom bar: white background, "TODAY'S UPDATE" — positioned 20% up from bottom
       bar_height = 80
+      bar_offset = (HEIGHT * 0.20).round
       bar = MiniMagick::Image.create(".png") do |f|
         MiniMagick::Tool::Convert.new do |cmd|
           cmd.size "#{WIDTH}x#{bar_height}"
@@ -234,6 +250,7 @@ class BulletinRenderer
       canvas = canvas.composite(bar) do |c|
         c.compose "Over"
         c.gravity "South"
+        c.geometry "+0+#{bar_offset}"
       end
 
       bar_text = render_text_image(
@@ -248,7 +265,7 @@ class BulletinRenderer
       canvas = canvas.composite(bar_text) do |c|
         c.compose "Over"
         c.gravity "SouthWest"
-        c.geometry "+48+10"
+        c.geometry "+48+#{bar_offset + 10}"
       end
 
       canvas.write(output)
@@ -267,24 +284,39 @@ class BulletinRenderer
         end
       end
 
-      # Top-left: small ME NEWS branding in white (semi-transparent)
+      # Top-left: "DAILY UPDATE" bold italic red on white background
+      top_logo_height = 44
+      top_logo_bar = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "220x#{top_logo_height}"
+          cmd.merge! ["xc:rgba(255,255,255,0.92)"]
+          cmd << f.path
+        end
+      end
+      canvas = canvas.composite(top_logo_bar) do |c|
+        c.compose "Over"
+        c.gravity "NorthWest"
+        c.geometry "+24+52"
+      end
+
       small_logo = render_text_image(
-        "ME NEWS",
-        size: 24,
+        "DAILY UPDATE",
+        size: 22,
         width: 200,
-        height: 40,
-        font: FONT_BOLD,
-        color: "rgba(255,255,255,0.6)",
+        height: top_logo_height - 8,
+        font: FONT_BOLD_ITALIC,
+        color: ACCENT_COLOR,
         gravity: "West"
       )
       canvas = canvas.composite(small_logo) do |c|
         c.compose "Over"
         c.gravity "NorthWest"
-        c.geometry "+32+60"
+        c.geometry "+32+56"
       end
 
-      # Bottom info bar (~100px)
+      # Bottom info bar (~100px) — positioned 20% up from bottom
       bar_height = 100
+      bar_offset = (HEIGHT * 0.20).round
       bar = MiniMagick::Image.create(".png") do |f|
         MiniMagick::Tool::Convert.new do |cmd|
           cmd.size "#{WIDTH}x#{bar_height}"
@@ -295,22 +327,23 @@ class BulletinRenderer
       canvas = canvas.composite(bar) do |c|
         c.compose "Over"
         c.gravity "South"
+        c.geometry "+0+#{bar_offset}"
       end
 
-      # Red "ME NEWS" label on left of bar
+      # Red "ME NEWS" label on left of bar (bold italic)
       label = render_text_image(
         "ME NEWS",
         size: 20,
         width: 140,
         height: 30,
-        font: FONT_BOLD,
+        font: FONT_BOLD_ITALIC,
         color: ACCENT_COLOR,
         gravity: "West"
       )
       canvas = canvas.composite(label) do |c|
         c.compose "Over"
         c.gravity "SouthWest"
-        c.geometry "+32+52"
+        c.geometry "+32+#{bar_offset + 52}"
       end
 
       # Black headline text (right of logo area)
@@ -326,7 +359,7 @@ class BulletinRenderer
       canvas = canvas.composite(headline_img) do |c|
         c.compose "Over"
         c.gravity "SouthWest"
-        c.geometry "+180+15"
+        c.geometry "+180+#{bar_offset + 15}"
       end
 
       canvas.write(output)
@@ -336,19 +369,34 @@ class BulletinRenderer
 
     private
 
-    def add_branding(canvas, color: "rgba(255,255,255,0.7)")
+    def add_branding(canvas, color: ACCENT_COLOR)
+      # White background bar for top logo
+      logo_bar_height = 60
+      logo_bar = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "300x#{logo_bar_height}"
+          cmd.merge! ["xc:rgba(255,255,255,0.92)"]
+          cmd << f.path
+        end
+      end
+      canvas = canvas.composite(logo_bar) do |c|
+        c.compose "Over"
+        c.gravity "NorthWest"
+        c.geometry "+30+70"
+      end
+
       branding = render_text_image(
-        "ME NEWS",
-        size: 36,
-        width: 400,
-        height: 60,
-        font: FONT_BOLD,
+        "DAILY UPDATE",
+        size: 32,
+        width: 280,
+        height: logo_bar_height - 10,
+        font: FONT_BOLD_ITALIC,
         color: color
       )
       canvas.composite(branding) do |c|
         c.compose "Over"
         c.gravity "NorthWest"
-        c.geometry "+40+80"
+        c.geometry "+40+75"
       end
     end
 
