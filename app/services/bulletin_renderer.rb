@@ -10,6 +10,7 @@ class BulletinRenderer
   AUDIO_CODEC = "-c:a aac -ar 48000 -ac 2 -b:a 128k"
   SILENT_AUDIO = "-f lavfi -i anullsrc=r=48000:cl=stereo"
   BG_MUSIC_PATH = Rails.root.join("public", "bgmusic.mp3").to_s
+  ANCHOR_VIDEO_PATH = Rails.root.join("app", "assets", "anchorcompressed.mp4").to_s
   BUMPER_CACHE_PATH = Rails.root.join("tmp", "bulletin_renders", "bumper_cache.mp4").to_s
   BUMPER_CACHE_MAX_AGE = 24.hours
 
@@ -257,46 +258,86 @@ class BulletinRenderer
   def render_studio_segment(story, inputs, studio_bg)
     story_dir = File.join(@work_dir, "story_#{story.id}")
     output = File.join(story_dir, "studio_intro.mp4")
+    headline = story.gemini_json&.dig("studioHeadline") || story.story_title&.upcase
 
-    # Generate the static frame PNG
-    frame_path = File.join(story_dir, "frame.png")
-    @frame_gen.story_frame(
-      background: studio_bg,
-      poster: inputs[:poster],
-      emoji: story.story_emoji,
-      headline: story.gemini_json&.dig("studioHeadline") || story.story_title&.upcase,
-      output: frame_path
-    )
+    if File.exist?(ANCHOR_VIDEO_PATH)
+      # Anchor video background with transparent overlay
+      overlay_path = File.join(story_dir, "overlay.png")
+      @frame_gen.story_overlay(
+        poster: inputs[:poster],
+        headline: headline,
+        output: overlay_path
+      )
 
-    if inputs[:tts]
-      tts_duration = @ffmpeg.probe_duration(inputs[:tts])
+      if inputs[:tts]
+        tts_duration = @ffmpeg.probe_duration(inputs[:tts])
 
-      # FFmpeg: static image loop + TTS audio → segment.mp4
-      # Use explicit -t to cap at TTS duration (-shortest is unreliable with -loop 1)
-      cmd = [
-        "ffmpeg -y",
-        "-loop 1 -framerate #{FPS} -i #{esc(frame_path)}",
-        "-i #{esc(inputs[:tts])}",
-        "-vf scale=1080:1920,fps=#{FPS}",
-        "-t #{tts_duration.round(2)}",
-        "-r #{FPS}",
-        VIDEO_CODEC,
-        AUDIO_CODEC,
-        esc(output)
-      ].join(" ")
+        cmd = [
+          "ffmpeg -y",
+          "-stream_loop -1 -i #{esc(ANCHOR_VIDEO_PATH)}",
+          "-loop 1 -framerate #{FPS} -i #{esc(overlay_path)}",
+          "-i #{esc(inputs[:tts])}",
+          "-filter_complex '[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=#{FPS}[bg];[bg][1:v]overlay=0:0[out]'",
+          "-map [out] -map 2:a:0",
+          "-t #{tts_duration.round(2)}",
+          "-r #{FPS}",
+          VIDEO_CODEC,
+          AUDIO_CODEC,
+          esc(output)
+        ].join(" ")
+      else
+        cmd = [
+          "ffmpeg -y",
+          "-stream_loop -1 -i #{esc(ANCHOR_VIDEO_PATH)}",
+          "-loop 1 -framerate #{FPS} -i #{esc(overlay_path)}",
+          SILENT_AUDIO,
+          "-filter_complex '[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=#{FPS}[bg];[bg][1:v]overlay=0:0[out]'",
+          "-map [out] -map 2:a:0",
+          "-t 5",
+          "-r #{FPS}",
+          VIDEO_CODEC,
+          AUDIO_CODEC,
+          esc(output)
+        ].join(" ")
+      end
     else
-      # No TTS — 5 second static frame with silent audio
-      cmd = [
-        "ffmpeg -y",
-        "-loop 1 -framerate #{FPS} -t 5 -i #{esc(frame_path)}",
-        SILENT_AUDIO,
-        "-vf scale=1080:1920,fps=#{FPS}",
-        "-r #{FPS}",
-        VIDEO_CODEC,
-        AUDIO_CODEC,
-        "-t 5 -shortest",
-        esc(output)
-      ].join(" ")
+      # Fallback: static frame (original behaviour)
+      frame_path = File.join(story_dir, "frame.png")
+      @frame_gen.story_frame(
+        background: studio_bg,
+        poster: inputs[:poster],
+        emoji: story.story_emoji,
+        headline: headline,
+        output: frame_path
+      )
+
+      if inputs[:tts]
+        tts_duration = @ffmpeg.probe_duration(inputs[:tts])
+
+        cmd = [
+          "ffmpeg -y",
+          "-loop 1 -framerate #{FPS} -i #{esc(frame_path)}",
+          "-i #{esc(inputs[:tts])}",
+          "-vf scale=1080:1920,fps=#{FPS}",
+          "-t #{tts_duration.round(2)}",
+          "-r #{FPS}",
+          VIDEO_CODEC,
+          AUDIO_CODEC,
+          esc(output)
+        ].join(" ")
+      else
+        cmd = [
+          "ffmpeg -y",
+          "-loop 1 -framerate #{FPS} -t 5 -i #{esc(frame_path)}",
+          SILENT_AUDIO,
+          "-vf scale=1080:1920,fps=#{FPS}",
+          "-r #{FPS}",
+          VIDEO_CODEC,
+          AUDIO_CODEC,
+          "-t 5 -shortest",
+          esc(output)
+        ].join(" ")
+      end
     end
 
     @ffmpeg.run(cmd, label: "studio_story_#{story.story_number}")
@@ -397,7 +438,7 @@ class BulletinRenderer
 
     # Write filter graph to a temp file to avoid shell-escaping issues
     filter_file = File.join(@work_dir, "music_filter.txt")
-    File.write(filter_file, "#{volume_expr}[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[aout]")
+    File.write(filter_file, "#{volume_expr}[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]")
 
     cmd = [
       "ffmpeg -y",
@@ -421,28 +462,32 @@ class BulletinRenderer
 
     segment_infos.each do |seg|
       duration = @ffmpeg.probe_duration(seg[:path])
-      vol = case seg[:type]
-            when :bumper then 1.0
-            when :studio then 0.18
-            when :user_video then 0.0
-            else 0.18
-            end
-
-      ranges << { start: current_time.round(2), finish: (current_time + duration).round(2), vol: vol }
+      ranges << { start: current_time.round(2), finish: (current_time + duration).round(2), type: seg[:type] }
       current_time += duration
     end
 
-    # Build a single nested if() expression for the volume filter
-    # Innermost fallback is 0.18 (default)
-    # Single-quote the expression so commas are literal (not filtergraph separators)
-    expr = ranges.reverse.reduce("0.18") do |fallback, r|
-      "if(between(t,#{r[:start]},#{r[:finish]}),#{r[:vol]},#{fallback})"
+    log("[Render] Music volume ranges: #{ranges.map { |r| "#{r[:start]}-#{r[:finish]}s=#{r[:type]}" }.join(', ')}")
+
+    # Chained volume filters with enable timeline:
+    # Base level: 0.18 (studio level for entire track)
+    # User video segments: multiply by 0 → mute (0.18 * 0 = 0)
+    # Bumper segments: multiply by 5.5556 → full volume (0.18 * 5.5556 ≈ 1.0)
+    # Studio segments: no extra filter needed — base 0.18 applies
+    filters = [ "volume=0.18" ]
+
+    ranges.each do |r|
+      case r[:type]
+      when :user_video
+        filters << "volume=volume=0:enable='between(t,#{r[:start]},#{r[:finish]})'"
+      when :bumper
+        filters << "volume=volume=5.5556:enable='between(t,#{r[:start]},#{r[:finish]})'"
+      end
     end
 
-    log("[Render] Music volume ranges: #{ranges.map { |r| "#{r[:start]}-#{r[:finish]}s=#{r[:vol]}" }.join(', ')}")
-    log("[Render] Volume expr: #{expr}")
+    chain = filters.join(",")
+    log("[Render] Volume filter chain: #{chain}")
 
-    "[1:a]volume='#{expr}'"
+    "[1:a]#{chain}"
   end
 
   # ── Upload to CF Stream ────────────────────────

@@ -191,6 +191,70 @@ class BulletinRenderer
       output
     end
 
+    # Generate a transparent overlay PNG for compositing on top of anchor video.
+    # Contains branding, poster thumbnail, headline text, and bottom gradient — no background.
+    def story_overlay(poster:, headline:, output:)
+      # Transparent canvas
+      canvas = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "#{WIDTH}x#{HEIGHT}"
+          cmd.merge! ["xc:none"]
+          cmd << f.path
+        end
+      end
+
+      # Branding
+      canvas = add_branding(canvas)
+
+      # Poster thumbnail (right side)
+      if poster && File.exist?(poster)
+        poster_img = MiniMagick::Image.open(poster)
+        poster_img.resize "352x352^"
+        poster_img.gravity "center"
+        poster_img.extent "352x352"
+
+        canvas = canvas.composite(poster_img) do |c|
+          c.compose "Over"
+          c.gravity "East"
+          c.geometry "+100+#{-HEIGHT / 8}"
+        end
+      end
+
+      # Headline text at bottom
+      headline_img = render_text_image(
+        (headline || "").upcase,
+        size: 52,
+        width: WIDTH - 80,
+        height: 200,
+        font: "DejaVu-Sans-Bold",
+        color: "white",
+        background: "rgba(0,0,0,0.6)"
+      )
+      canvas = canvas.composite(headline_img) do |c|
+        c.compose "Over"
+        c.gravity "South"
+        c.geometry "+0+280"
+      end
+
+      # Bottom gradient
+      gradient = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "#{WIDTH}x400"
+          cmd.merge! ["gradient:rgba(0,0,0,0.8)-rgba(0,0,0,0)"]
+          cmd.flip
+          cmd << f.path
+        end
+      end
+      canvas = canvas.composite(gradient) do |c|
+        c.compose "Over"
+        c.gravity "South"
+      end
+
+      canvas.write(output)
+      Rails.logger.info("[FrameGen] Story overlay: #{output}")
+      output
+    end
+
     private
 
     def add_branding(canvas)
