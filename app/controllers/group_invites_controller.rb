@@ -42,13 +42,15 @@ class GroupInvitesController < ApplicationController
       return
     end
 
+    post_join_path = current_user.onboarding_completed? ? "/friends" : "/onboarding"
+
     if invite.group.members.include?(current_user)
-      redirect_to "/friends", notice: "You're already in this group!"
+      redirect_to post_join_path, notice: "You're already in this group!"
       return
     end
 
     if invite.redeem!(current_user)
-      redirect_to "/friends", notice: "Welcome to #{invite.group.name}!"
+      redirect_to post_join_path, notice: "Welcome to #{invite.group.name}!"
     else
       redirect_to "/friends", alert: "Could not join group. Please try again."
     end

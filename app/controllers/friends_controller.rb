@@ -33,9 +33,22 @@ class FriendsController < ApplicationController
       creator: current_user
     )
 
-    redirect_to friends_path, notice: "Group created!"
+    respond_to do |format|
+      format.html { redirect_to friends_path, notice: "Group created!" }
+      format.json do
+        invite, token = GroupInvite.create_for_group(group: group, user: current_user)
+        render json: {
+          group: { id: group.id, name: group.name },
+          invite_url: join_url(token),
+          expires_at: invite.expires_at.iso8601
+        }
+      end
+    end
   rescue ActiveRecord::RecordInvalid => e
-    redirect_to friends_path, alert: e.message
+    respond_to do |format|
+      format.html { redirect_to friends_path, alert: e.message }
+      format.json { render json: { error: e.message }, status: :unprocessable_entity }
+    end
   end
 
   private

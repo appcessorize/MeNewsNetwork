@@ -14,6 +14,10 @@ class User < ActiveRecord::Base
     groups.exists?
   end
 
+  def onboarding_completed?
+    onboarding_completed_at.present?
+  end
+
   def primary_group
     groups.first
   end

@@ -58,7 +58,7 @@ class AuthController < ApplicationController
       return
     end
 
-    redirect_to newsroom_path
+    redirect_to user.onboarding_completed? ? newsroom_path : "/onboarding"
   end
 
   # DELETE /auth/logout — clear session
@@ -104,7 +104,7 @@ class AuthController < ApplicationController
       return
     end
 
-    redirect_to newsroom_path, notice: "Logged in as #{user.name}"
+    redirect_to user.onboarding_completed? ? newsroom_path : "/onboarding", notice: "Logged in as #{user.name}"
   end
 
   private

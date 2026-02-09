@@ -10,7 +10,8 @@ Rails.application.routes.draw do
   post "studio/render/:id",         to: "studio#start_render",   as: :studio_render
   get  "studio/bulletin_status/:id", to: "studio#bulletin_status", as: :studio_bulletin_status
   get "debug",    to: "debug#show"
-  get "onboarding", to: "pages#onboarding"
+  get  "onboarding",          to: "pages#onboarding"
+  post "onboarding/complete", to: "pages#complete_onboarding"
   get "terms",    to: "pages#terms"
   get "privacy",  to: "pages#privacy"
 

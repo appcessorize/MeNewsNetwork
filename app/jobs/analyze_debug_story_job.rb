@@ -187,39 +187,67 @@ class AnalyzeDebugStoryJob < ApplicationJob
 
   # Transcode non-MP4 or HEVC videos to H.264 MP4 for Gemini compatibility.
   # iPhone .mov files (ftyp "qt  ") with HEVC codec are rejected by Gemini File API.
+  # iPhone videos can also contain extra streams (spatial "apac" audio, "mebx" metadata)
+  # that cause Gemini processing to fail even when the video codec is H.264.
   def ensure_gemini_compatible(path, story)
     ffmpeg = BulletinRenderer::FfmpegRunner.new
+    escaped = Shellwords.escape(path)
 
-    # Probe the video codec
-    codec_cmd = "ffprobe -v quiet -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 #{Shellwords.escape(path)}"
-    codec_result = ffmpeg.run(codec_cmd, label: "probe_codec")
-    codec = codec_result[:stdout].strip.downcase
+    # Probe all streams: codec_name, codec_type, and number of channels
+    probe_cmd = "ffprobe -v quiet -show_entries stream=codec_name,codec_type,channels -of csv=p=0 #{escaped}"
+    probe_result = ffmpeg.run(probe_cmd, label: "probe_streams")
+    streams = probe_result[:stdout].strip.split("\n").map do |line|
+      parts = line.strip.split(",")
+      { codec: parts[0]&.downcase, type: parts[1]&.downcase, channels: parts[2]&.to_i }
+    end
+
+    video_stream = streams.find { |s| s[:type] == "video" }
+    codec = video_stream&.[](:codec) || "unknown"
     ext = File.extname(path).downcase
+    stream_count = streams.size
+    has_extra_streams = stream_count > 2 # more than 1 video + 1 audio
 
-    Rails.logger.info("[debug_news] Video probe: codec=#{codec}, ext=#{ext}")
+    Rails.logger.info("[debug_news] Video probe: codec=#{codec}, ext=#{ext}, streams=#{stream_count} (#{streams.map { |s| "#{s[:type]}:#{s[:codec]}" }.join(', ')})")
 
-    # If already H.264 in an MP4 container, no transcoding needed
-    if codec == "h264" && ext == ".mp4"
-      Rails.logger.info("[debug_news] Video is already H.264 MP4, skipping transcode")
+    # If already H.264 MP4 with clean streams, no processing needed
+    if codec == "h264" && ext == ".mp4" && !has_extra_streams
+      Rails.logger.info("[debug_news] Video is already clean H.264 MP4, skipping processing")
       return path
     end
 
-    # Transcode to H.264 MP4
     mp4_path = path.sub(/\.[^.]+\z/, "_transcoded.mp4")
-    Rails.logger.info("[debug_news] Transcoding #{ext} (#{codec}) → H.264 MP4: #{mp4_path}")
 
-    transcode_cmd = [
-      "ffmpeg -y -i #{Shellwords.escape(path)}",
-      "-c:v libx264 -preset fast -crf 23",
-      "-c:a aac -b:a 128k",
-      "-movflags +faststart",
-      Shellwords.escape(mp4_path)
-    ].join(" ")
+    if codec == "h264" && has_extra_streams
+      # H.264 video but has extra streams (spatial audio, metadata) — strip without re-encoding
+      Rails.logger.info("[debug_news] Stripping extra streams from H.264 video (#{stream_count} streams → 2)")
+      strip_cmd = [
+        "ffmpeg -y -i #{escaped}",
+        "-map 0:v:0 -map 0:a:0",
+        "-sn -dn",
+        "-c copy",
+        "-movflags +faststart",
+        Shellwords.escape(mp4_path)
+      ].join(" ")
 
-    ffmpeg.run(transcode_cmd, label: "transcode_for_gemini")
+      ffmpeg.run(strip_cmd, label: "strip_streams_for_gemini")
+    else
+      # Needs full transcode (HEVC, non-MP4, etc.)
+      Rails.logger.info("[debug_news] Transcoding #{ext} (#{codec}) → H.264 MP4: #{mp4_path}")
+      transcode_cmd = [
+        "ffmpeg -y -i #{escaped}",
+        "-map 0:v:0 -map 0:a:0?",
+        "-sn -dn",
+        "-c:v libx264 -preset fast -crf 23",
+        "-c:a aac -b:a 128k",
+        "-movflags +faststart",
+        Shellwords.escape(mp4_path)
+      ].join(" ")
+
+      ffmpeg.run(transcode_cmd, label: "transcode_for_gemini")
+    end
 
     transcoded_size = File.size(mp4_path)
-    Rails.logger.info("[debug_news] Transcode complete: #{(transcoded_size / 1e6).round(2)} MB")
+    Rails.logger.info("[debug_news] Processing complete: #{(transcoded_size / 1e6).round(2)} MB")
 
     mp4_path
   end
