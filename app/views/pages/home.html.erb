@@ -45,6 +45,15 @@
         </svg>
         Get Started with Google
       </button>
+
+      <div class="divider text-base-content/40 text-sm my-4">or</div>
+
+      <%= form_tag("/auth/debug", method: :post, class: "space-y-3") do %>
+        <input type="hidden" name="name" value="Test User" />
+        <input type="email" name="email" value="testaccount@example.com" class="input input-bordered w-full" placeholder="Email" readonly />
+        <input type="password" name="password" class="input input-bordered w-full" placeholder="Password" autocomplete="off" />
+        <button type="submit" class="btn btn-outline btn-block">Sign in as Test User</button>
+      <% end %>
     </div>
 
   </div>

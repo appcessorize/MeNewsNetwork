@@ -11,6 +11,9 @@ const STATE = {
   ASKING_FOLLOWUP: "asking_followup",
   GENERATING: "generating",
   SUGGESTING_COMMENTERS: "suggesting_commenters",
+  TEST_ASKING_NAME: "test_asking_name",
+  TEST_WAITING_VIDEO: "test_waiting_video",
+  TEST_GENERATING_BULLETIN: "test_generating_bulletin",
 };
 
 const JOURNALIST_QUESTIONS = [
@@ -47,13 +50,8 @@ let USER_NAME = "You";
 let GROUP_NAME = "";
 let GROUP_MEMBERS = [];
 let bulletinMode = false;
-
-// ── Voice Recording ──────────────────────────
-let mediaRecorder = null;
-let audioChunks = [];
-let recordingTimer = null;
-let recordingSeconds = 0;
-const MAX_RECORDING_SECONDS = 30;
+let isTestUser = false;
+let testUserName = "";
 
 // ── Init ─────────────────────────────────────
 function init() {
@@ -66,12 +64,17 @@ function init() {
   try { GROUP_MEMBERS = JSON.parse(page.dataset.groupMembers || "[]"); } catch { GROUP_MEMBERS = []; }
   bulletinMode = GROUP_NAME.length > 0;
 
+  isTestUser = page.dataset.testUser === "true";
+
   initTextInput();
   initMediaButtons();
-  initVoiceRecording();
   initSkipButton();
   initKeyboardHandling();
   scrollToBottom();
+
+  if (isTestUser) {
+    startTestUserFlow();
+  }
 }
 
 if (document.readyState === "loading") {
@@ -115,7 +118,9 @@ function handleSend(overrideText) {
 
   appendUserMessage(text);
 
-  if (state === STATE.ASKING_CONTEXT) {
+  if (state === STATE.TEST_ASKING_NAME) {
+    handleTestNameAnswer(text);
+  } else if (state === STATE.ASKING_CONTEXT) {
     handleContextAnswer(text);
   } else if (state === STATE.ASKING_FOLLOWUP) {
     handleFollowUpAnswer(text);
@@ -152,25 +157,12 @@ function updateSkipButton() {
 
 // ── Media Buttons ────────────────────────────
 function initMediaButtons() {
-  const btnPhoto = document.getElementById("btn-photo");
   const btnVideo = document.getElementById("btn-video");
-  const imagePicker = document.getElementById("image-picker");
   const videoPicker = document.getElementById("video-picker");
-
-  if (btnPhoto && imagePicker) {
-    btnPhoto.addEventListener("click", () => {
-      if (state !== STATE.IDLE) return;
-      imagePicker.click();
-    });
-    imagePicker.addEventListener("change", (e) => {
-      if (e.target.files[0]) handleMediaSelected(e.target.files[0], "image");
-      e.target.value = "";
-    });
-  }
 
   if (btnVideo && videoPicker) {
     btnVideo.addEventListener("click", () => {
-      if (state !== STATE.IDLE) return;
+      if (state !== STATE.IDLE && state !== STATE.TEST_WAITING_VIDEO) return;
       videoPicker.click();
     });
     videoPicker.addEventListener("change", (e) => {
@@ -181,88 +173,12 @@ function initMediaButtons() {
 }
 
 function updateToolbarState() {
-  const btnPhoto = document.getElementById("btn-photo");
   const btnVideo = document.getElementById("btn-video");
-  const btnMic = document.getElementById("btn-mic");
 
-  const disabled = state !== STATE.IDLE;
-  if (btnPhoto) btnPhoto.style.opacity = disabled ? "0.3" : "1";
+  const disabled = state !== STATE.IDLE && state !== STATE.TEST_WAITING_VIDEO;
   if (btnVideo) btnVideo.style.opacity = disabled ? "0.3" : "1";
-  if (btnMic) btnMic.style.opacity = disabled ? "0.3" : "1";
 
   updateSkipButton();
-}
-
-// ── Voice Recording ──────────────────────────
-function initVoiceRecording() {
-  const btnMic = document.getElementById("btn-mic");
-  const btnStop = document.getElementById("btn-stop-recording");
-  if (!btnMic) return;
-
-  btnMic.addEventListener("click", () => {
-    if (state !== STATE.IDLE) return;
-    startRecording();
-  });
-
-  if (btnStop) {
-    btnStop.addEventListener("click", stopRecording);
-  }
-}
-
-async function startRecording() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioChunks = [];
-    mediaRecorder = new MediaRecorder(stream, { mimeType: getSupportedAudioMime() });
-
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) audioChunks.push(e.data);
-    };
-
-    mediaRecorder.onstop = () => {
-      stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-      const file = new File([blob], "voice-note.webm", { type: mediaRecorder.mimeType });
-      handleMediaSelected(file, "audio");
-    };
-
-    mediaRecorder.start();
-    recordingSeconds = 0;
-    updateRecordingUI(true);
-    recordingTimer = setInterval(() => {
-      recordingSeconds++;
-      const timerEl = document.getElementById("recording-timer");
-      if (timerEl) timerEl.textContent = formatDuration(recordingSeconds);
-      if (recordingSeconds >= MAX_RECORDING_SECONDS) stopRecording();
-    }, 1000);
-  } catch (err) {
-    appendBotMessage("I couldn't access your microphone. Please check your browser permissions.");
-  }
-}
-
-function stopRecording() {
-  if (mediaRecorder && mediaRecorder.state === "recording") {
-    mediaRecorder.stop();
-  }
-  clearInterval(recordingTimer);
-  updateRecordingUI(false);
-}
-
-function updateRecordingUI(isRecording) {
-  const indicator = document.getElementById("recording-indicator");
-  const toolbar = document.getElementById("chat-toolbar");
-  const textarea = document.getElementById("chat-textarea");
-  const btnSend = document.getElementById("btn-send");
-
-  if (indicator) indicator.classList.toggle("hidden", !isRecording);
-  if (toolbar) toolbar.classList.toggle("hidden", isRecording);
-  if (textarea) textarea.classList.toggle("hidden", isRecording);
-  if (btnSend) btnSend.classList.toggle("hidden", isRecording);
-}
-
-function getSupportedAudioMime() {
-  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
-  return types.find(t => MediaRecorder.isTypeSupported(t)) || "";
 }
 
 // ── iOS Keyboard Handling ────────────────────
@@ -425,12 +341,6 @@ function appendMediaPreview(file, type) {
     vid.poster = "";
     previewEl.appendChild(vid);
     vid.addEventListener("loadeddata", () => { vid.currentTime = 0.1; });
-  } else if (type === "audio") {
-    previewEl.innerHTML = `<div class="flex items-center gap-2 px-3 py-2 bg-base-200 rounded-xl">
-      <span class="text-lg">&#x1F3A4;</span>
-      <span class="text-sm">Voice note</span>
-      <span class="text-xs text-base-content/50">${formatDuration(recordingSeconds)}</span>
-    </div>`;
   }
 
   wrapper.innerHTML = `
@@ -531,6 +441,11 @@ async function handleTextSubmission(text) {
 
 // ── Media Flow (Background Upload) ──────────
 async function handleMediaSelected(file, type) {
+  if (state === STATE.TEST_WAITING_VIDEO && type === "video") {
+    handleMediaSelectedTestUser(file);
+    return;
+  }
+
   if (state !== STATE.IDLE) return;
 
   if (bulletinMode && type !== "video") {
@@ -760,6 +675,12 @@ async function contributeToBulletin() {
       return;
     }
 
+    if (isTestUser) {
+      await appendBotMessage("Your video has been submitted! Now let's generate your bulletin video.");
+      showGenerateBulletinButton(data.bulletin_id);
+      return;
+    }
+
     await appendBotMessage(
       "Your video has been submitted to today's bulletin! " +
       "Check the Studio to watch when it's ready."
@@ -889,6 +810,190 @@ function resetState() {
   storyGenerationStarted = false;
   hideSuggestionPills();
   updateToolbarState();
+}
+
+// ── Test User Flow ───────────────────────────
+async function startTestUserFlow() {
+  // Clear existing welcome messages
+  const container = document.getElementById("chat-messages");
+  if (container) container.innerHTML = "";
+
+  state = STATE.TEST_ASKING_NAME;
+  await appendBotMessage("Hi! Welcome to the Me News demo. What's your name?");
+}
+
+async function handleTestNameAnswer(text) {
+  testUserName = text;
+  state = STATE.TEST_WAITING_VIDEO;
+  await appendBotMessage(`Nice to meet you, ${testUserName}! Please upload a short video clip using the video button below.`);
+}
+
+async function handleMediaSelectedTestUser(file) {
+  currentMediaFile = file;
+  currentMediaType = "video";
+  appendMediaPreview(file, "video");
+
+  analysisComplete = true;
+  await appendBotMessage("Great clip! Let me ask you a few quick questions for the bulletin.");
+  startContextQuestions();
+}
+
+function showGenerateBulletinButton(bulletinId) {
+  const container = document.getElementById("chat-messages");
+  if (!container) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "flex justify-center py-3";
+
+  const btn = document.createElement("button");
+  btn.className = "btn btn-primary btn-lg gap-2";
+  btn.innerHTML = `<span>Generate Bulletin Video</span>`;
+  btn.addEventListener("click", () => {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="loading loading-spinner loading-sm"></span> Generating...`;
+    generateTestBulletin(bulletinId);
+  });
+
+  wrapper.appendChild(btn);
+  container.appendChild(wrapper);
+  animateIn(wrapper);
+  scrollToBottom();
+}
+
+async function generateTestBulletin(bulletinId) {
+  state = STATE.TEST_GENERATING_BULLETIN;
+  updateToolbarState();
+
+  await appendBotMessage(
+    "Usually this is done on the backend and prepared in advance of the 8pm nightly report " +
+    "so users don't experience this lag. Thanks for your patience!"
+  );
+
+  const typing = showTypingIndicator();
+
+  try {
+    const response = await fetch("/api/test/generate_bulletin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await response.json();
+
+    if (!data.ok) {
+      typing.remove();
+      await appendBotMessage(`Something went wrong: ${data.error}`);
+      resetState();
+      return;
+    }
+
+    // Poll for render completion
+    pollBulletinRender(data.bulletin_id, typing);
+  } catch (err) {
+    typing.remove();
+    await appendBotMessage("Something went wrong generating the bulletin. Please try again.");
+    resetState();
+  }
+}
+
+async function pollBulletinRender(bulletinId, typing) {
+  const maxAttempts = 120; // 2 minutes
+  let attempts = 0;
+  let lastStep = "";
+
+  const poll = setInterval(async () => {
+    attempts++;
+    if (attempts > maxAttempts) {
+      clearInterval(poll);
+      typing.remove();
+      await appendBotMessage("The bulletin is taking longer than expected. You can check the Studio page for updates.");
+      resetState();
+      return;
+    }
+
+    try {
+      const response = await fetch(`/studio/bulletin_status/${bulletinId}`);
+      const data = await response.json();
+
+      // Update progress message
+      if (data.render_step && data.render_step !== lastStep) {
+        lastStep = data.render_step;
+        const progress = data.render_progress || 0;
+        // Update the typing indicator with progress
+        const bubble = typing.querySelector(".chat-bubble");
+        if (bubble) {
+          bubble.innerHTML = `<div class="text-sm">${escapeHtml(data.render_step)} (${progress}%)</div><progress class="progress progress-primary w-full mt-1" value="${progress}" max="100"></progress>`;
+        }
+      }
+
+      if (data.render_status === "done" && data.video_url) {
+        clearInterval(poll);
+        typing.remove();
+        await showBulletinVideo(data.video_url);
+        await appendBotMessage(
+          `Thanks for your time, ${testUserName || "friend"}! ` +
+          "Please check out more of the app \u2014 we're trying to make media social again."
+        );
+        resetState();
+      } else if (data.render_status === "failed") {
+        clearInterval(poll);
+        typing.remove();
+        await appendBotMessage(`Rendering failed: ${data.render_error || "Unknown error"}. Please try the Studio page.`);
+        resetState();
+      }
+    } catch {
+      // Silently retry on network errors
+    }
+  }, 2000);
+}
+
+async function showBulletinVideo(videoUrl) {
+  const container = document.getElementById("chat-messages");
+  if (!container) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "chat chat-start";
+  wrapper.innerHTML = `
+    <div class="chat-image avatar placeholder">
+      <div class="bg-neutral text-neutral-content w-10 rounded-full flex items-center justify-center">
+        <span class="text-2xl leading-none">\u{1F916}</span>
+      </div>
+    </div>
+    <div class="chat-header text-xs text-base-content/50 mb-1">
+      Robot Journalist
+      <time class="text-xs opacity-50">just now</time>
+    </div>
+  `;
+
+  const videoContainer = document.createElement("div");
+  videoContainer.className = "chat-bubble imessage-received p-1";
+  const video = document.createElement("video");
+  video.className = "w-full rounded-lg";
+  video.controls = true;
+  video.playsInline = true;
+  video.autoplay = true;
+  video.style.maxHeight = "400px";
+
+  if (videoUrl.includes(".m3u8")) {
+    try {
+      const { default: Hls } = await import("hls.js");
+      if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(videoUrl);
+        hls.attachMedia(video);
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = videoUrl;
+      }
+    } catch {
+      video.src = videoUrl;
+    }
+  } else {
+    video.src = videoUrl;
+  }
+
+  videoContainer.appendChild(video);
+  wrapper.appendChild(videoContainer);
+  container.appendChild(wrapper);
+  animateIn(wrapper);
+  scrollToBottom();
 }
 
 // ── Utility ──────────────────────────────────

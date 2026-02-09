@@ -1,5 +1,5 @@
 class PagesController < ApplicationController
-  before_action :require_login!, only: %i[newsroom settings onboarding complete_onboarding]
+  before_action :require_login!, only: %i[newsroom settings onboarding complete_onboarding dismiss_test_welcome]
 
   def home
     if logged_in?
@@ -8,11 +8,23 @@ class PagesController < ApplicationController
         return
       end
 
+      @test_user = session[:test_user] == true
+
+      if @test_user && !session[:test_welcome_seen]
+        render :test_welcome
+        return
+      end
+
       @user = current_user
       @group = current_user.primary_group
       @group_members = @group ? @group.members.where.not(id: current_user.id).order(:name) : []
       render :chat
     end
+  end
+
+  def dismiss_test_welcome
+    session[:test_welcome_seen] = true
+    head :ok
   end
 
   def newsroom

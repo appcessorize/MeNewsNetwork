@@ -1,0 +1,59 @@
+<% content_for(:title) { "Me News — Demo" } %>
+
+<div class="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-slate-800 to-slate-950" style="font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+  <div class="max-w-md w-full">
+    <div class="card bg-base-100/90 shadow-xl">
+      <div class="card-body space-y-4">
+        <h1 class="text-2xl font-black italic">Welcome to the Demo</h1>
+
+        <div class="space-y-3 text-sm text-base-content/70 leading-relaxed">
+          <p>
+            Thanks for checking out <strong>Me News</strong>! Here's what to expect:
+          </p>
+
+          <div class="flex gap-3 items-start">
+            <span class="text-lg shrink-0">1.</span>
+            <p>You've been added to a <strong>Demo Group</strong> with some test members. Normally you'd create a group and invite your friends.</p>
+          </div>
+
+          <div class="flex gap-3 items-start">
+            <span class="text-lg shrink-0">2.</span>
+            <p>Our AI journalist will ask you about a short video clip. Your friends would do the same throughout the day.</p>
+          </div>
+
+          <div class="flex gap-3 items-start">
+            <span class="text-lg shrink-0">3.</span>
+            <p>At the end, you'll be able to generate a video bulletin from your clip. Usually this happens automatically at 8pm each night so users never wait.</p>
+          </div>
+
+          <div class="flex gap-3 items-start">
+            <span class="text-lg shrink-0">4.</span>
+            <p>To try all the features (groups, friends, settings), sign in with Google and add some friends!</p>
+          </div>
+        </div>
+
+        <button id="btn-start-demo" type="button" class="btn btn-primary btn-block btn-lg mt-4">
+          Start Demo
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById("btn-start-demo").addEventListener("click", async () => {
+    const btn = document.getElementById("btn-start-demo");
+    btn.disabled = true;
+    btn.textContent = "Loading...";
+
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    const token = meta ? meta.content : "";
+
+    await fetch("/test/dismiss_welcome", {
+      method: "POST",
+      headers: { "X-CSRF-Token": token }
+    });
+
+    window.location.href = "/";
+  });
+</script>

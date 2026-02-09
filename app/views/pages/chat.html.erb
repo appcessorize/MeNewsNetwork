@@ -6,7 +6,8 @@
      data-user-avatar="<%= @user.avatar_url %>"
      data-user-name="<%= @user.name %>"
      data-group-name="<%= @group&.name %>"
-     data-group-members="<%= @group_members.map { |m| { id: m.id, name: m.name, avatar_url: m.avatar_url } }.to_json %>">
+     data-group-members="<%= @group_members.map { |m| { id: m.id, name: m.name, avatar_url: m.avatar_url } }.to_json %>"
+     data-test-user="<%= @test_user ? 'true' : 'false' %>">
 
   <!-- Header -->
   <header class="chat-header">
@@ -59,7 +60,7 @@
           <span class="text-2xl leading-none">&#x1F916;</span>
         </div>
       </div>
-      <div class="chat-bubble imessage-received">You can share video, images, text, or audio. What have you been up to? Any plans for later?</div>
+      <div class="chat-bubble imessage-received">Share a short video and I'll turn it into a news story for your group's daily bulletin.</div>
     </div>
   </div>
 
@@ -70,20 +71,9 @@
 
     <!-- Toolbar: media buttons + skip -->
     <div id="chat-toolbar" class="chat-toolbar">
-      <button id="btn-photo" type="button" class="media-btn" title="Send photo">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      </button>
       <button id="btn-video" type="button" class="media-btn" title="Send video">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-        </svg>
-      </button>
-      <button id="btn-mic" type="button" class="media-btn media-btn-mic" title="Record voice note">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3z" />
         </svg>
       </button>
       <button id="btn-skip" type="button" class="btn-skip hidden" title="Skip this question">&#x23ED; Skip</button>
@@ -101,19 +91,9 @@
       </button>
     </div>
 
-    <!-- Recording indicator -->
-    <div id="recording-indicator" class="hidden">
-      <div class="flex items-center gap-2 py-2 px-1">
-        <span class="recording-pulse"></span>
-        <span class="text-sm text-error font-medium">Recording</span>
-        <span id="recording-timer" class="text-sm font-mono text-base-content/60">0:00</span>
-        <button id="btn-stop-recording" type="button" class="btn btn-error btn-xs ml-auto">Stop</button>
-      </div>
-    </div>
   </div>
 
-  <!-- Hidden file inputs -->
-  <input type="file" id="image-picker" accept="image/*" capture="environment" class="hidden" />
+  <!-- Hidden file input -->
   <input type="file" id="video-picker" accept="video/*" capture="environment" class="hidden" />
 </div>
 
@@ -139,13 +119,9 @@
     <% end %>
     <ul class="menu menu-lg flex-1 p-4 gap-1">
       <li><a href="/" class="menu-active">Chat</a></li>
-      <li><a href="/newsroom">Newsroom</a></li>
-      <li><a href="/stories">Stories</a></li>
       <li><a href="/friends">Friends</a></li>
+      <li><a href="/onboarding">About</a></li>
       <li><a href="/settings">Settings</a></li>
-      <% if current_user&.email == ENV.fetch("ADMIN_EMAIL", nil) %>
-        <li><a href="/debug">Debug</a></li>
-      <% end %>
     </ul>
     <% if current_user %>
       <div class="p-4 border-t border-base-300">

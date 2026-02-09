@@ -14,6 +14,7 @@ Rails.application.routes.draw do
   post "onboarding/complete", to: "pages#complete_onboarding"
   get "terms",    to: "pages#terms"
   get "privacy",  to: "pages#privacy"
+  post "test/dismiss_welcome", to: "pages#dismiss_test_welcome"
 
   # Friends / Groups
   get  "friends",              to: "friends#show"
@@ -85,6 +86,7 @@ Rails.application.routes.draw do
     post "email/test",     to: "email#test"
 
     post "bulletin/contribute",       to: "bulletin_contributions#create"
+    post "test/generate_bulletin",    to: "test_demo#generate_bulletin"
 
     post "stories",                  to: "stories#create"
     post "stories/:id/voice_notes",  to: "stories#add_voice_note"

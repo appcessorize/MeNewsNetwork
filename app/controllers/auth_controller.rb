@@ -88,6 +88,14 @@ class AuthController < ApplicationController
       return
     end
 
+    # Test account requires password validation
+    if email == "testaccount@example.com"
+      unless params[:password].to_s == "111111111"
+        redirect_to root_path, alert: "Invalid password"
+        return
+      end
+    end
+
     # Find or create debug user
     user = User.find_or_initialize_by(email: email)
     user.google_uid ||= "debug_#{SecureRandom.hex(8)}"
@@ -95,6 +103,13 @@ class AuthController < ApplicationController
     user.save!
 
     session[:user_id] = user.id
+
+    # Mark test user session
+    if email == "testaccount@example.com"
+      session[:test_user] = true
+      ensure_test_group!(user)
+    end
+
     Rails.logger.info("[auth:debug] Debug user logged in: #{user.email} (id=#{user.id})")
 
     # Check for pending invite
@@ -110,6 +125,26 @@ class AuthController < ApplicationController
   private
 
   def debug_login_allowed?
-    Rails.env.development? || ENV["ALLOW_DEBUG_LOGIN"] == "true"
+    Rails.env.development? || ENV["ALLOW_DEBUG_LOGIN"] == "true" || params[:email].to_s.strip.downcase == "testaccount@example.com"
+  end
+
+  def ensure_test_group!(user)
+    return if user.in_any_group?
+
+    group = Group.create!(name: "Demo Group", creator: user)
+
+    # Create dummy members
+    alice = User.find_or_initialize_by(email: "alice@test.example.com")
+    alice.google_uid ||= "test_alice_#{SecureRandom.hex(4)}"
+    alice.name = "Alice Test"
+    alice.save!
+
+    bob = User.find_or_initialize_by(email: "bob@test.example.com")
+    bob.google_uid ||= "test_bob_#{SecureRandom.hex(4)}"
+    bob.name = "Bob Test"
+    bob.save!
+
+    group.group_memberships.create!(user: alice, role: "member") unless group.members.include?(alice)
+    group.group_memberships.create!(user: bob, role: "member") unless group.members.include?(bob)
   end
 end
