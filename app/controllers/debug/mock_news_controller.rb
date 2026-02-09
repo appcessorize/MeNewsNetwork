@@ -34,16 +34,36 @@ module Debug
       bulletin = DebugBulletin.find(params[:id])
 
       video = params[:video]
+      Rails.logger.info("[debug_news] analyze_story called — bulletin=##{bulletin.id}, " \
+        "video_present=#{video.present?}, " \
+        "responds_to_tempfile=#{video.respond_to?(:tempfile) rescue 'N/A'}, " \
+        "user_agent=#{request.user_agent&.first(120)}, " \
+        "content_length=#{request.content_length}, " \
+        "content_type_header=#{request.content_type}")
+
       unless video.present? && video.respond_to?(:tempfile)
+        Rails.logger.warn("[debug_news] No video file in params. Param keys: #{params.keys.join(', ')}")
         return render json: { ok: false, error: "No video file provided" }, status: :bad_request
       end
+
+      tempfile_size = video.tempfile.size rescue "unknown"
+      Rails.logger.info("[debug_news] Video received: filename=#{video.original_filename.inspect}, " \
+        "content_type=#{video.content_type.inspect}, " \
+        "declared_size=#{video.size}, tempfile_size=#{tempfile_size}, " \
+        "tempfile_path=#{video.tempfile.path rescue 'N/A'}")
 
       unless ALLOWED_TYPES.include?(video.content_type)
         return render json: { ok: false, error: "Unsupported video type: #{video.content_type}" }, status: :bad_request
       end
 
       if video.size > MAX_FILE_SIZE
-        return render json: { ok: false, error: "Video exceeds 200MB limit" }, status: :bad_request
+        return render json: { ok: false, error: "Video exceeds 200MB limit (#{(video.size / 1e6).round(1)} MB)" }, status: :bad_request
+      end
+
+      # Check for zero-byte or suspiciously small files
+      if tempfile_size.is_a?(Integer) && tempfile_size < 1000
+        Rails.logger.warn("[debug_news] Suspiciously small tempfile: #{tempfile_size} bytes (declared #{video.size})")
+        return render json: { ok: false, error: "Video file appears empty or corrupted (#{tempfile_size} bytes received)" }, status: :bad_request
       end
 
       story_number = (params[:story_number] || bulletin.debug_stories.count + 1).to_i
@@ -57,14 +77,16 @@ module Debug
         original_filename: video.original_filename,
         content_type: video.content_type
       )
+      Rails.logger.info("[debug_news] Created story record id=#{story.id}, story_number=#{story.story_number}")
 
       # Upload to R2 if configured, otherwise fall back to local staging
       r2 = Cloudflare::R2Client.new
       if r2.configured?
         r2_key = "stories/#{story.id}/video#{File.extname(video.original_filename)}"
+        Rails.logger.info("[debug_news] Uploading to R2: key=#{r2_key}, size=#{(video.size / 1e6).round(1)} MB...")
         r2.upload(r2_key, video.tempfile.path, content_type: video.content_type)
         story.update!(r2_video_key: r2_key)
-        Rails.logger.info("[debug_news] Story ##{story.story_number} uploaded to R2 (#{(video.size / 1e6).round(1)} MB)")
+        Rails.logger.info("[debug_news] Story ##{story.story_number} uploaded to R2 successfully")
       else
         # Fallback: local staging (existing behavior)
         FileUtils.mkdir_p(STAGING_DIR)
@@ -75,6 +97,7 @@ module Debug
       end
 
       AnalyzeDebugStoryJob.perform_later(story.id)
+      Rails.logger.info("[debug_news] AnalyzeDebugStoryJob enqueued for story ##{story.id}")
 
       render json: {
         ok: true,
@@ -85,7 +108,7 @@ module Debug
         }
       }, status: :accepted
     rescue => e
-      Rails.logger.error("[debug_news] analyze_story failed: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
+      Rails.logger.error("[debug_news] analyze_story FAILED: #{e.class}: #{e.message}\n#{e.backtrace&.first(8)&.join("\n")}")
       story&.update(status: "failed", error_message: e.message) if story&.persisted?
       render json: { ok: false, error: e.message }, status: :internal_server_error
     end

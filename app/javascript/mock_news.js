@@ -71,6 +71,7 @@ function bindFileInput() {
   const input = document.getElementById("video-input");
   input.addEventListener("change", () => {
     Array.from(input.files).forEach(f => {
+      log(`File picked: "${f.name}" (${(f.size / 1e6).toFixed(2)} MB, type="${f.type || "none"}", lastModified=${new Date(f.lastModified).toISOString()})`);
       const clone = new File([f], f.name, { type: f.type, lastModified: f.lastModified });
       collectedFiles.push(clone);
       const ctx = getContext(clone.name);
@@ -302,7 +303,7 @@ async function uploadAndAnalyze() {
         error_message: null
       });
 
-      log(`[${storyNumber}/${collectedFiles.length}] Uploading "${file.name}" (${(file.size / 1e6).toFixed(1)} MB)...`);
+      log(`[${storyNumber}/${collectedFiles.length}] Uploading "${file.name}" (${(file.size / 1e6).toFixed(1)} MB, type=${file.type || "unknown"})...`);
 
       try {
         const formData = new FormData();
@@ -327,7 +328,7 @@ async function uploadAndAnalyze() {
         );
 
         if (data.ok) {
-          log(`[${storyNumber}] Uploaded — analyzing in background...`);
+          log(`[${storyNumber}] Uploaded — analyzing in background (story_id=${data.story?.id})...`);
           updateStoryStatus(statusList, storyNumber, {
             story_number: storyNumber,
             status: "analyzing",
@@ -386,6 +387,9 @@ function startStatusPolling(statusList, fileMap) {
         });
 
         if (s.status === "analyzing") allDone = false;
+        if (s.status === "failed" && s.error_message) {
+          log(`  ↳ Story ${s.story_number} failed: ${s.error_message}`);
+        }
       });
 
       if (allDone) {
@@ -420,31 +424,65 @@ function startStatusPolling(statusList, fileMap) {
 function uploadWithProgress(url, formData, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const startTime = performance.now();
     xhr.open("POST", url);
     xhr.setRequestHeader("X-CSRF-Token", csrfToken());
     xhr.timeout = 600000;
 
+    let lastProgressLog = 0;
     xhr.upload.addEventListener("progress", (e) => {
-      if (e.lengthComputable && onProgress) {
-        onProgress(Math.round((e.loaded / e.total) * 100));
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        if (onProgress) onProgress(pct);
+        // Log at 25% intervals to avoid spam
+        if (pct >= lastProgressLog + 25 || pct === 100) {
+          const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+          log(`  ↳ upload progress: ${pct}% (${(e.loaded / 1e6).toFixed(1)}/${(e.total / 1e6).toFixed(1)} MB, ${elapsed}s)`);
+          lastProgressLog = pct;
+        }
       }
     });
 
+    xhr.upload.addEventListener("error", () => {
+      log("  ↳ upload stream error (network dropped during send)");
+    });
+
     xhr.addEventListener("load", () => {
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+      log(`  ↳ server responded: HTTP ${xhr.status} after ${elapsed}s`);
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           resolve(JSON.parse(xhr.responseText));
         } catch {
+          log(`  ↳ invalid JSON response body: ${xhr.responseText.substring(0, 100)}`);
           reject(new Error("Invalid JSON response"));
         }
       } else {
+        log(`  ↳ error body: ${xhr.responseText.substring(0, 300)}`);
         reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText.substring(0, 200)}`));
       }
     });
 
-    xhr.addEventListener("error", () => reject(new Error("Network error")));
-    xhr.addEventListener("timeout", () => reject(new Error("Upload timed out (10 min)")));
-    xhr.addEventListener("abort", () => reject(new Error("Upload aborted")));
+    xhr.addEventListener("error", () => {
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+      log(`  ↳ XHR network error after ${elapsed}s (connection lost or CORS issue)`);
+      reject(new Error("Network error"));
+    });
+    xhr.addEventListener("timeout", () => {
+      log("  ↳ XHR timeout after 600s");
+      reject(new Error("Upload timed out (10 min)"));
+    });
+    xhr.addEventListener("abort", () => {
+      log("  ↳ XHR aborted (page navigated away or manual cancel)");
+      reject(new Error("Upload aborted"));
+    });
+
+    // Log FormData details for debugging
+    for (const [key, value] of formData.entries()) {
+      if (value instanceof File) {
+        log(`  ↳ FormData: ${key} = File("${value.name}", size=${(value.size / 1e6).toFixed(2)}MB, type="${value.type}")`);
+      }
+    }
 
     xhr.send(formData);
   });
