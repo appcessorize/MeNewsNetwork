@@ -40,6 +40,7 @@ class AnalyzeDebugStoryJob < ApplicationJob
       file_uri: gemini_file[:uri],
       file_mime_type: gemini_file[:mimeType],
       prompt: prompt,
+      model: "gemini-2.5-flash",
       temperature: 0.3,
       json_response: true
     )
@@ -80,6 +81,33 @@ class AnalyzeDebugStoryJob < ApplicationJob
 
     total = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0).round(1)
     Rails.logger.info("[debug_news] Story ##{story.story_number} fully processed in #{total}s")
+
+    # Log all data needed to seed test stories for the demo bulletin
+    customer_code = Rails.configuration.x.cloudflare.customer_code
+    cf_video_url = cf_uid.present? && customer_code.present? ?
+      "https://customer-#{customer_code}.cloudflarestream.com/#{cf_uid}/manifest/video.m3u8" : nil
+    cf_thumbnail_url = cf_uid.present? && customer_code.present? ?
+      "https://customer-#{customer_code}.cloudflarestream.com/#{cf_uid}/thumbnails/thumbnail.jpg?time=1s&height=176&width=176&fit=crop" : nil
+
+    seed_data = {
+      story_id: story.id,
+      bulletin_id: story.debug_bulletin_id,
+      story_number: story.story_number,
+      story_title: story.story_title,
+      story_emoji: story.story_emoji,
+      intro_text: story.intro_text,
+      subtitle_segments: story.subtitle_segments,
+      gemini_json: story.gemini_json,
+      user_context: story.user_context,
+      cloudflare_stream_uid: cf_uid,
+      cf_video_url: cf_video_url,
+      cf_thumbnail_url: cf_thumbnail_url,
+      r2_video_key: story.r2_video_key,
+      r2_tts_key: story.r2_tts_key,
+      original_filename: story.original_filename,
+      content_type: story.content_type
+    }
+    Rails.logger.info("[SEED_DATA] story=#{seed_data.to_json}")
 
   rescue => e
     file_size_info = staging_path && File.exist?(staging_path) ? " (file_size=#{(File.size(staging_path) / 1e6).round(2)} MB)" : ""

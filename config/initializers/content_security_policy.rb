@@ -14,7 +14,7 @@ Rails.application.configure do
     policy.style_src   :self, :unsafe_inline, "https://fonts.googleapis.com"
     policy.connect_src :self, :blob, "https://generativelanguage.googleapis.com", "https://api.cloudflare.com", "https://*.cloudflarestream.com", "wss://localhost:*", "ws://localhost:*"
     policy.media_src   :self, :blob, "https://*.cloudflarestream.com"
-    policy.frame_src   :self, "https://*.cloudflarestream.com"
+    policy.frame_src   :self, "https://*.cloudflarestream.com", "https://www.youtube.com"
     policy.worker_src  :self, :blob
   end
 

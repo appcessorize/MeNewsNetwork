@@ -881,11 +881,17 @@ async function generateTestBulletin(bulletinId) {
   updateToolbarState();
 
   await appendBotMessage(
-    "Usually this is done on the backend and prepared in advance of the 8pm nightly report " +
-    "so users don't experience this lag. Thanks for your patience!"
+    "We'll mix your video with some test footage from my friends and family to show you what a typical bulletin looks like " +
+    "when you add your friends to Me News. This will take a few minutes — for a real user this happens in the background " +
+    "before the daily 8pm report, but since this is a test we're doing it live. Please don't close the tab!"
   );
 
   const typing = showTypingIndicator();
+  // Show a spinner message while we wait for the server
+  const bubble = typing.querySelector(".chat-bubble");
+  if (bubble) {
+    bubble.innerHTML = `<div class="flex items-center gap-2"><span class="loading loading-spinner loading-sm"></span><span class="text-sm">Generating your bulletin...</span></div>`;
+  }
 
   try {
     const response = await fetch("/api/test/generate_bulletin", {
