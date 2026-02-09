@@ -1,7 +1,7 @@
 <div class="hero bg-base-200 min-h-screen" style="font-family: 'Inter', system-ui, -apple-system, sans-serif;">
   <div class="hero-content flex-col lg:flex-row-reverse gap-12 max-w-5xl">
 
-    <%# Right side: hero video %>
+    <%# Right side: hero video (desktop) %>
     <div class="hidden sm:block w-full max-w-sm aspect-[9/16] rounded-2xl shadow-2xl overflow-hidden">
       <iframe
         src="https://www.youtube.com/embed/cu0CswlHZYQ?autoplay=1&mute=1&loop=1&playlist=cu0CswlHZYQ&controls=0&modestbranding=1&rel=0"
@@ -12,7 +12,7 @@
     </div>
 
     <%# Left side: copy + CTA %>
-    <div class="max-w-lg">
+    <div class="max-w-lg text-center sm:text-left">
       <h1 style="font-weight: 900; font-style: italic; font-size: 3rem; line-height: 1.1;" class="mb-2">
         Me News
       </h1>
@@ -20,7 +20,7 @@
 
       <div class="space-y-4 text-base-content/70 leading-relaxed mb-8">
         <p>
-          Me News is social media that feels <em>social</em> again. Instead of an endless feed, you get a short daily "news episode" made entirely from videos posted by your friends and family — hosted by a robot anchor.
+          Me News is social media that feels <em>social</em> again. Instead of an endless feed, you get a short daily "news episode" made entirely from videos posted by your friends and family — hosted by an AI anchor.
         </p>
         <p>
           The AI isn't the content — your people are. Me News turns small moments into a fun, watchable report with captions, music, and playful "interviews" so the conversation keeps going without comment-section chaos.
@@ -30,7 +30,17 @@
         </p>
       </div>
 
-      <button id="btn-google-login" type="button" class="btn btn-lg bg-white text-black border-[#e5e5e5] shadow-md hover:shadow-lg transition-shadow gap-3 text-base">
+      <%# Watch demo link (mobile only — video embed is hidden on mobile) %>
+      <a href="https://www.youtube.com/shorts/cu0CswlHZYQ" target="_blank" rel="noopener"
+         class="btn btn-outline btn-block mb-4 gap-2 sm:hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        Watch Demo Video
+      </a>
+
+      <button id="btn-google-login" type="button" class="btn btn-lg bg-white text-black border-[#e5e5e5] shadow-md hover:shadow-lg transition-shadow gap-3 text-base mx-auto sm:mx-0 flex">
         <svg aria-label="Google logo" width="24" height="24" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
           <g>
             <path d="m0 0H512V512H0" fill="#fff"></path>

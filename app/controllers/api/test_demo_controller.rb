@@ -21,6 +21,10 @@ module Api
         Rails.logger.warn("[TestDemo] Some stories failed, proceeding with #{bulletin.debug_stories.where(status: 'done').count} done stories")
       end
 
+      # Seed demo stories from friends/family (copies from source bulletin 67)
+      seeded = TestBulletinSeeder.new(bulletin).seed!
+      Rails.logger.info("[TestDemo] Seeded #{seeded} demo stories") if seeded > 0
+
       # Build the bulletin JSON (same as POST /debug/mock_news/bulletins/:id/build)
       Rails.logger.info("[TestDemo] Building bulletin ##{bulletin.id}...")
       BulletinBuilder.new(bulletin).build!
