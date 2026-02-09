@@ -19,7 +19,6 @@ class BulletinRenderer
     @on_progress = on_progress
     @ffmpeg = BulletinRenderer::FfmpegRunner.new
     @frame_gen = BulletinRenderer::FrameGenerator.new
-    @subtitle_gen = BulletinRenderer::SubtitleGenerator.new
     @r2 = Cloudflare::R2Client.new
     @cf_stream = Cloudflare::StreamClient.new
     @log_lines = []
@@ -265,26 +264,16 @@ class BulletinRenderer
     if inputs[:tts]
       tts_duration = @ffmpeg.probe_duration(inputs[:tts])
 
-      # Generate ASS subtitles
-      ass_path = nil
-      subtitles = story.subtitle_segments
-      if subtitles.present?
-        ass_path = File.join(story_dir, "subtitles.ass")
-        @subtitle_gen.generate(subtitles, actual_duration: tts_duration, output_path: ass_path)
-      end
-
-      # FFmpeg: static image loop + TTS audio + ASS subtitles → segment.mp4
-      vf_filters = ["loop=loop=-1:size=1:start=0", "scale=1080:1920", "fps=24"]
-      vf_filters << "ass=#{esc(ass_path)}" if ass_path
-
+      # FFmpeg: static image loop + TTS audio → segment.mp4
+      # Use explicit -t to cap at TTS duration (-shortest is unreliable with -loop 1)
       cmd = [
         "ffmpeg -y",
         "-loop 1 -framerate 24 -i #{esc(frame_path)}",
         "-i #{esc(inputs[:tts])}",
-        "-vf #{vf_filters.join(',')}",
+        "-vf scale=1080:1920,fps=24",
+        "-t #{tts_duration.round(2)}",
         VIDEO_CODEC,
         AUDIO_CODEC,
-        "-shortest",
         esc(output)
       ].join(" ")
     else
@@ -354,26 +343,14 @@ class BulletinRenderer
 
     tts_duration = @ffmpeg.probe_duration(weather_inputs[:tts])
 
-    # Generate weather subtitles
-    ass_path = nil
-    narration = bulletin.weather_json&.dig("narration") || bulletin.weather_json&.dig(:narration) || {}
-    subtitles = narration["subtitleSegments"] || narration[:subtitleSegments]
-    if subtitles.present?
-      ass_path = File.join(weather_dir, "subtitles.ass")
-      @subtitle_gen.generate(subtitles, actual_duration: tts_duration, output_path: ass_path)
-    end
-
-    vf_filters = ["loop=loop=-1:size=1:start=0", "scale=1080:1920", "fps=24"]
-    vf_filters << "ass=#{esc(ass_path)}" if ass_path
-
     cmd = [
       "ffmpeg -y",
       "-loop 1 -framerate 24 -i #{esc(frame_path)}",
       "-i #{esc(weather_inputs[:tts])}",
-      "-vf #{vf_filters.join(',')}",
+      "-vf scale=1080:1920,fps=24",
+      "-t #{tts_duration.round(2)}",
       VIDEO_CODEC,
       AUDIO_CODEC,
-      "-shortest",
       esc(output)
     ].join(" ")
 
