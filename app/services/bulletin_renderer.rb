@@ -434,12 +434,15 @@ class BulletinRenderer
 
     # Build a single nested if() expression for the volume filter
     # Innermost fallback is 0.18 (default)
-    # Commas must be escaped with \ — FFmpeg's filtergraph parser uses , as filter separator
+    # Single-quote the expression so commas are literal (not filtergraph separators)
     expr = ranges.reverse.reduce("0.18") do |fallback, r|
-      "if(between(t\\,#{r[:start]}\\,#{r[:finish]})\\,#{r[:vol]}\\,#{fallback})"
+      "if(between(t,#{r[:start]},#{r[:finish]}),#{r[:vol]},#{fallback})"
     end
 
-    "[1:a]volume=#{expr}"
+    log("[Render] Music volume ranges: #{ranges.map { |r| "#{r[:start]}-#{r[:finish]}s=#{r[:vol]}" }.join(', ')}")
+    log("[Render] Volume expr: #{expr}")
+
+    "[1:a]volume='#{expr}'"
   end
 
   # ── Upload to CF Stream ────────────────────────
