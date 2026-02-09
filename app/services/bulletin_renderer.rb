@@ -156,7 +156,7 @@ class BulletinRenderer
       return local
     end
 
-    log("[Render] No bumper available")
+    log("[Render] No bumper available — tried CF Stream UID=#{bumper_uid.inspect}, local=#{local}")
     nil
   end
 
@@ -170,18 +170,26 @@ class BulletinRenderer
 
       # Download user video from R2
       if story.r2_video_key.present?
-        video_path = File.join(story_dir, "video#{File.extname(story.original_filename || '.mp4')}")
-        @r2.download(story.r2_video_key, video_path)
-        data[:video] = video_path
+        begin
+          video_path = File.join(story_dir, "video#{File.extname(story.original_filename || '.mp4')}")
+          @r2.download(story.r2_video_key, video_path)
+          data[:video] = video_path if File.exist?(video_path) && File.size(video_path) > 0
+        rescue => e
+          log("[Render] R2 video download failed for story #{story.id}: #{e.message}")
+        end
       elsif story.temp_file_path.present? && File.exist?(story.temp_file_path)
         data[:video] = story.temp_file_path
       end
 
       # Download TTS from R2
       if story.r2_tts_key.present?
-        tts_path = File.join(story_dir, "tts.wav")
-        @r2.download(story.r2_tts_key, tts_path)
-        data[:tts] = tts_path
+        begin
+          tts_path = File.join(story_dir, "tts.wav")
+          @r2.download(story.r2_tts_key, tts_path)
+          data[:tts] = tts_path if File.exist?(tts_path) && File.size(tts_path) > 0
+        rescue => e
+          log("[Render] R2 TTS download failed for story #{story.id}: #{e.message}")
+        end
       elsif story.tts_audio.attached?
         tts_path = File.join(story_dir, "tts.wav")
         File.binwrite(tts_path, story.tts_audio.download)
@@ -190,9 +198,13 @@ class BulletinRenderer
 
       # Download poster from R2
       if story.r2_poster_key.present?
-        poster_path = File.join(story_dir, "poster.jpg")
-        @r2.download(story.r2_poster_key, poster_path)
-        data[:poster] = poster_path
+        begin
+          poster_path = File.join(story_dir, "poster.jpg")
+          @r2.download(story.r2_poster_key, poster_path)
+          data[:poster] = poster_path if File.exist?(poster_path) && File.size(poster_path) > 0
+        rescue => e
+          log("[Render] R2 poster download failed for story #{story.id}: #{e.message}")
+        end
       end
 
       inputs[story.id] = data
@@ -377,7 +389,7 @@ class BulletinRenderer
     File.write(concat_list, paths.map { |p| "file '#{p}'" }.join("\n"))
 
     output = File.join(@work_dir, "concat.mp4")
-    cmd = "ffmpeg -y -f concat -safe 0 -i #{esc(concat_list)} -c copy #{esc(output)}"
+    cmd = "ffmpeg -y -f concat -safe 0 -i #{esc(concat_list)} #{VIDEO_CODEC} #{AUDIO_CODEC} #{esc(output)}"
     @ffmpeg.run(cmd, label: "concat")
     output
   end
@@ -395,13 +407,14 @@ class BulletinRenderer
     # Calculate segment durations and build volume automation
     volume_expr = build_volume_filter(segment_infos)
 
+    filter = "#{volume_expr}[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+
     cmd = [
       "ffmpeg -y",
       "-i #{esc(concat_path)}",
       "-stream_loop -1 -i #{esc(BG_MUSIC_PATH)}",
-      "-filter_complex",
-      %("#{volume_expr}[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[aout]"),
-      "-map 0:v:0 -map [aout]",
+      "-filter_complex \"#{filter}\"",
+      "-map 0:v:0 -map \"[aout]\"",
       "-c:v copy",
       AUDIO_CODEC,
       esc(output)
@@ -413,7 +426,7 @@ class BulletinRenderer
 
   def build_volume_filter(segment_infos)
     # Probe each segment duration to build time ranges
-    volumes = []
+    ranges = []
     current_time = 0.0
 
     segment_infos.each do |seg|
@@ -425,26 +438,18 @@ class BulletinRenderer
             else 0.18
             end
 
-      # Add crossfade ramps (0.3s)
-      ramp_in = [ current_time, current_time + 0.3 ]
-      ramp_out = [ current_time + duration - 0.3, current_time + duration ]
-
-      if vol > 0
-        volumes << "volume=#{vol}:enable='between(t,#{ramp_in[1].round(2)},#{ramp_out[0].round(2)})'"
-      else
-        volumes << "volume=0:enable='between(t,#{current_time.round(2)},#{(current_time + duration).round(2)})'"
-      end
-
+      ranges << { start: current_time.round(2), finish: (current_time + duration).round(2), vol: vol }
       current_time += duration
     end
 
-    # Build a combined volume filter string
-    # Default volume=0.18, with overrides per segment
-    filter_parts = volumes.map.with_index do |v, i|
-      v
+    # Build a single nested if() expression for the volume filter
+    # Innermost fallback is 0.18 (default)
+    # Commas inside if()/between() must be escaped with \ for FFmpeg filter syntax
+    expr = ranges.reverse.reduce("0.18") do |fallback, r|
+      "if(between(t\\,#{r[:start]}\\,#{r[:finish]})\\,#{r[:vol]}\\,#{fallback})"
     end
 
-    "[1:a]#{filter_parts.join(',')}"
+    "[1:a]volume=#{expr}"
   end
 
   # ── Upload to CF Stream ────────────────────────

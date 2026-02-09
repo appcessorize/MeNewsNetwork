@@ -36,9 +36,17 @@ class BulletinRenderer
           c.geometry "+60+0"
         end
       else
-        # Emoji as text rendered on a separate image then composited
-        emoji_img = render_text_image(emoji || "", size: 120, width: 200, height: 200)
-        canvas = canvas.composite(emoji_img) do |c|
+        # Placeholder circle — ImageMagick can't render color emoji
+        placeholder = MiniMagick::Image.create(".png") do |f|
+          MiniMagick::Tool::Convert.new do |cmd|
+            cmd.size "200x200"
+            cmd.merge! ["xc:none"]
+            cmd.fill "rgba(255,255,255,0.15)"
+            cmd.draw "circle 100,100 100,5"
+            cmd << f.path
+          end
+        end
+        canvas = canvas.composite(placeholder) do |c|
           c.compose "Over"
           c.gravity "West"
           c.geometry "+100+#{-HEIGHT / 8}"
@@ -124,9 +132,17 @@ class BulletinRenderer
       headline = narration["weatherHeadline"] || narration[:weatherHeadline] || "Weather"
       summary = current["summary"] || current[:summary] || ""
 
-      # Weather emoji
-      emoji_img = render_text_image(emoji, size: 160, width: 300, height: 300)
-      canvas = canvas.composite(emoji_img) do |c|
+      # Weather placeholder — ImageMagick can't render color emoji
+      placeholder = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "300x300"
+          cmd.merge! ["xc:none"]
+          cmd.fill "rgba(255,255,255,0.15)"
+          cmd.draw "circle 150,150 150,10"
+          cmd << f.path
+        end
+      end
+      canvas = canvas.composite(placeholder) do |c|
         c.compose "Over"
         c.gravity "North"
         c.geometry "+0+400"
