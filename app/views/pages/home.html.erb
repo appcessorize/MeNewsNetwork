@@ -1,31 +1,49 @@
-<div class="max-w-2xl mx-auto px-4 sm:px-6 py-12 sm:py-16" style="view-transition-name: page-content;">
-  <h1 style="font-weight: 900; font-style: italic; font-size: 2.5rem; line-height: 1.1;" class="mb-6">HOME PAGE</h1>
+<div class="hero bg-base-200 min-h-screen" style="font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+  <div class="hero-content flex-col lg:flex-row-reverse gap-12 max-w-5xl">
 
-  <p class="text-lg text-base-content/60 mb-8">Welcome to the Video Newsroom</p>
+    <%# Right side: hero image %>
+    <img
+      src="https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=640&q=80"
+      alt="Friends sharing moments together"
+      class="max-w-sm rounded-2xl shadow-2xl hidden sm:block"
+    />
 
-  <!-- Google login button (DaisyUI) -->
-  <button id="btn-google-login" type="button" class="btn bg-white text-black border-[#e5e5e5] mb-12">
-    <svg aria-label="Google logo" width="16" height="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-      <g>
-        <path d="m0 0H512V512H0" fill="#fff"></path>
-        <path fill="#34a853" d="M153 292c30 82 118 95 171 60h62v48A192 192 0 0190 341"></path>
-        <path fill="#4285f4" d="m386 400a140 175 0 0053-179H260v74h102q-7 37-38 57"></path>
-        <path fill="#fbbc02" d="m90 341a208 200 0 010-171l63 49q-12 37 0 73"></path>
-        <path fill="#ea4335" d="m153 219c22-69 116-109 179-50l55-54c-78-75-230-72-297 55"></path>
-      </g>
-    </svg>
-    Login with Google
-  </button>
+    <%# Left side: copy + CTA %>
+    <div class="max-w-lg">
+      <h1 style="font-weight: 900; font-style: italic; font-size: 3rem; line-height: 1.1;" class="mb-2">
+        Me News
+      </h1>
+      <p class="text-lg font-semibold text-primary mb-6">The first AI-powered Social Media</p>
 
-  <h2 class="text-xl font-semibold mb-4 text-base-content/80">About This Project</h2>
+      <div class="space-y-4 text-base-content/70 leading-relaxed mb-8">
+        <p>
+          Social media can be overwhelming.
+          When did it stop being <em>social</em> and become just <em>media</em>?
+        </p>
+        <p>
+          An endless feed of content that's just interesting enough to keep you engaged.
+          We're more connected but more isolated than ever before.
+        </p>
+        <p>
+          Remember when you went on Facebook to see what your friends had been doing?
+          People shared funny, interesting moments of their lives.
+          Made plans. Stayed connected.
+        </p>
+      </div>
 
-  <p class="text-base-content/60 leading-relaxed mb-4">
-    Upload a video and let Google's Gemini AI analyse it for you. The system generates timestamp-segmented scene descriptions, speech transcription, and sound effects — then produces a newsreader script you can listen to with text-to-speech.
-  </p>
-  <p class="text-base-content/60 leading-relaxed mb-4">
-    Videos can also be uploaded to Cloudflare Stream for hosting and playback. Ask follow-up questions about any analysed video within the active session window.
-  </p>
-  <p class="text-base-content/60 leading-relaxed">
-    Sign in with your Google account to get started.
-  </p>
+      <button id="btn-google-login" type="button" class="btn btn-lg bg-white text-black border-[#e5e5e5] shadow-md hover:shadow-lg transition-shadow gap-3 text-base">
+        <svg aria-label="Google logo" width="24" height="24" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+          <g>
+            <path d="m0 0H512V512H0" fill="#fff"></path>
+            <path fill="#34a853" d="M153 292c30 82 118 95 171 60h62v48A192 192 0 0190 341"></path>
+            <path fill="#4285f4" d="m386 400a140 175 0 0053-179H260v74h102q-7 37-38 57"></path>
+            <path fill="#fbbc02" d="m90 341a208 200 0 010-171l63 49q-12 37 0 73"></path>
+            <path fill="#ea4335" d="m153 219c22-69 116-109 179-50l55-54c-78-75-230-72-297 55"></path>
+          </g>
+        </svg>
+        Get Started with Google
+      </button>
+    </div>
+
+  </div>
 </div>
