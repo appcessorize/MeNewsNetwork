@@ -119,7 +119,11 @@ class AuthController < ApplicationController
       return
     end
 
-    redirect_to user.onboarding_completed? ? newsroom_path : "/onboarding", notice: "Logged in as #{user.name}"
+    if email == "testaccount@example.com"
+      redirect_to root_path, notice: "Logged in as #{user.name}"
+    else
+      redirect_to user.onboarding_completed? ? newsroom_path : "/onboarding", notice: "Logged in as #{user.name}"
+    end
   end
 
   private
