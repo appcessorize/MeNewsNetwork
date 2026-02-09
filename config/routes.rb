@@ -5,7 +5,10 @@ Rails.application.routes.draw do
 
   get "newsroom", to: "pages#newsroom"
   get "settings", to: "pages#settings"
-  get "studio",   to: "studio#show"
+  get  "studio",                    to: "studio#show"
+  post "studio/build/:id",          to: "studio#build_bulletin", as: :studio_build
+  post "studio/render/:id",         to: "studio#start_render",   as: :studio_render
+  get  "studio/bulletin_status/:id", to: "studio#bulletin_status", as: :studio_bulletin_status
   get "debug",    to: "debug#show"
   get "onboarding", to: "pages#onboarding"
   get "terms",    to: "pages#terms"
@@ -79,6 +82,8 @@ Rails.application.routes.draw do
 
     # Email
     post "email/test",     to: "email#test"
+
+    post "bulletin/contribute",       to: "bulletin_contributions#create"
 
     post "stories",                  to: "stories#create"
     post "stories/:id/voice_notes",  to: "stories#add_voice_note"

@@ -44,6 +44,12 @@ class RenderBulletinJob < ApplicationJob
 
       Rails.logger.info("[RenderJob] Bulletin ##{bulletin_id} render complete, uid=#{result[:video_uid]}")
 
+      if bulletin.group.present?
+        bulletin.group.members.find_each do |member|
+          BulletinMailer.video_ready(member, bulletin).deliver_later
+        end
+      end
+
     rescue => e
       Rails.logger.error("[RenderJob] Bulletin ##{bulletin_id} render failed: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}")
       bulletin.update!(

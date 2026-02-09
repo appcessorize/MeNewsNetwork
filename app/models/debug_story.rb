@@ -1,5 +1,6 @@
 class DebugStory < ApplicationRecord
   belongs_to :debug_bulletin
+  belongs_to :user, optional: true
 
   has_one_attached :media
   has_one_attached :tts_audio

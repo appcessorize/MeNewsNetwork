@@ -1,0 +1,7 @@
+Hi <%= @user.name %>,
+
+Your <%= @group.name %> daily bulletin for <%= @bulletin.bulletin_date&.strftime("%A, %B %-d") %> is ready to watch!
+
+<%= @story_count %> <%= @story_count == 1 ? "story" : "stories" %> compiled into today's bulletin.
+
+Watch now: <%= studio_url %>

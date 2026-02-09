@@ -1,52 +1,123 @@
+<% content_for :head do %>
+  <%= lazy_javascript_module_tag "studio" %>
+<% end %>
+
 <div class="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8" style="view-transition-name: page-content;">
-  <%= render "shared/navbar", title: "STUDIO", badge: "Coming Soon", badge_class: "badge-warning", current: "studio" %>
+  <%= render "shared/navbar", title: "STUDIO", current: "studio" %>
 
-  <!-- Placeholder -->
-  <div class="card bg-base-100 shadow-sm mb-6">
-    <div class="card-body items-center text-center py-16">
-      <div class="text-7xl mb-4">🎬</div>
-      <h2 class="font-bold text-2xl mb-2">The Studio</h2>
-      <p class="text-base-content/60 max-w-lg mb-6">
-        This is where the news gets broadcast. The studio will be your live production space
-        where today's stories come together for the 7 PM broadcast.
-      </p>
-
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-2xl mt-4">
-        <div class="card bg-base-200">
-          <div class="card-body items-center py-6">
-            <span class="text-3xl">📡</span>
-            <h3 class="font-semibold text-sm mt-2">Live Broadcast</h3>
-            <p class="text-xs text-base-content/50 text-center">Stream your newscast to viewers in real-time</p>
-          </div>
-        </div>
-        <div class="card bg-base-200">
-          <div class="card-body items-center py-6">
-            <span class="text-3xl">🎙️</span>
-            <h3 class="font-semibold text-sm mt-2">Teleprompter</h3>
-            <p class="text-xs text-base-content/50 text-center">AI-generated scripts ready to read</p>
-          </div>
-        </div>
-        <div class="card bg-base-200">
-          <div class="card-body items-center py-6">
-            <span class="text-3xl">📊</span>
-            <h3 class="font-semibold text-sm mt-2">Analytics</h3>
-            <p class="text-xs text-base-content/50 text-center">Track viewer engagement and reach</p>
-          </div>
-        </div>
+  <% if @group.nil? %>
+    <!-- No group state -->
+    <div class="card bg-base-100 shadow-sm mb-6">
+      <div class="card-body items-center text-center py-16">
+        <div class="text-7xl mb-4">&#x1F3AC;</div>
+        <h2 class="font-bold text-2xl mb-2">Join a Group to Get Started</h2>
+        <p class="text-base-content/60 max-w-lg mb-6">
+          The Studio compiles your group's video clips into a daily news bulletin.
+          Join or create a group first, then contribute clips via the chat.
+        </p>
+        <a href="/friends" class="btn btn-primary">Go to Friends</a>
       </div>
+    </div>
 
-      <div class="mt-8">
-        <div class="mockup-window bg-base-300 border border-base-300 w-full max-w-xl">
-          <div class="bg-base-200 flex flex-col items-center justify-center px-4 py-16">
-            <div class="flex items-center gap-3 text-base-content/30">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              <span class="text-lg font-mono">STANDBY</span>
+  <% elsif @bulletin.nil? %>
+    <!-- Group exists but no bulletin today -->
+    <div class="card bg-base-100 shadow-sm mb-6">
+      <div class="card-body items-center text-center py-16">
+        <div class="text-7xl mb-4">&#x1F4F9;</div>
+        <h2 class="font-bold text-2xl mb-2"><%= @group.name %></h2>
+        <p class="text-base-content/60 max-w-lg mb-6">
+          No contributions yet today. Head to the chat and submit a video clip
+          to kick off today's bulletin!
+        </p>
+        <a href="/newsroom" class="btn btn-primary">Go to Chat</a>
+      </div>
+    </div>
+
+  <% else %>
+    <!-- Bulletin exists -->
+    <div id="studio-page"
+         data-bulletin-id="<%= @bulletin.id %>"
+         data-bulletin-status="<%= @bulletin.status %>"
+         data-render-status="<%= @bulletin.render_status %>">
+
+      <div class="card bg-base-100 shadow-sm mb-6">
+        <div class="card-body">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="font-bold text-xl"><%= @group.name %> — Today's Bulletin</h2>
+              <p class="text-sm text-base-content/60"><%= Date.current.strftime("%A, %B %-d, %Y") %></p>
             </div>
+            <div class="badge badge-lg <%= badge_class_for(@bulletin.status) %>">
+              <%= @bulletin.status.capitalize %>
+            </div>
+          </div>
+
+          <!-- Contributions list -->
+          <h3 class="font-semibold text-sm uppercase tracking-wider text-base-content/50 mb-3">
+            Contributions (<span id="story-count"><%= @stories.size %></span>)
+          </h3>
+          <div id="stories-list" class="space-y-3 mb-6">
+            <% @stories.each do |story| %>
+              <div class="flex items-center gap-3 p-3 bg-base-200 rounded-xl" data-story-id="<%= story.id %>">
+                <% if story.user&.avatar_url.present? %>
+                  <img src="<%= story.user.avatar_url %>" class="w-10 h-10 rounded-full" alt="" referrerpolicy="no-referrer" />
+                <% else %>
+                  <div class="w-10 h-10 rounded-full bg-neutral text-neutral-content flex items-center justify-center text-sm font-bold">
+                    <%= (story.user&.name || "?").first.upcase %>
+                  </div>
+                <% end %>
+                <div class="flex-1 min-w-0">
+                  <p class="font-medium text-sm truncate">
+                    <span class="story-emoji"><%= story.story_emoji %></span>
+                    <span class="story-title"><%= story.story_title || "Analyzing..." %></span>
+                  </p>
+                  <p class="text-xs text-base-content/50">
+                    <%= story.user&.name || "Unknown" %> &middot; Story #<%= story.story_number %>
+                  </p>
+                </div>
+                <div class="story-status-badge badge badge-sm <%= story_badge_class(story.status) %>">
+                  <%= story.status.capitalize %>
+                </div>
+              </div>
+            <% end %>
+          </div>
+
+          <!-- Action buttons -->
+          <div class="flex flex-wrap gap-3">
+            <button id="btn-build" class="btn btn-primary"
+                    <%= "disabled" unless @bulletin.all_stories_done? && @bulletin.status == "draft" %>>
+              Build Bulletin
+            </button>
+            <button id="btn-render" class="btn btn-secondary"
+                    <%= "disabled" unless @bulletin.status == "ready" && !@bulletin.render_in_progress? %>>
+              Render Video
+            </button>
+            <a href="/newsroom" class="btn btn-ghost">Add More Clips</a>
+          </div>
+
+          <!-- Progress bar (hidden by default) -->
+          <div id="progress-container" class="mt-4 <%= 'hidden' unless @bulletin.render_in_progress? %>">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-sm font-medium" id="progress-step"><%= @bulletin.render_step || "Waiting..." %></span>
+              <span class="text-sm text-base-content/60" id="progress-pct"><%= @bulletin.render_progress || 0 %>%</span>
+            </div>
+            <progress class="progress progress-primary w-full" id="progress-bar"
+                      value="<%= @bulletin.render_progress || 0 %>" max="100"></progress>
+          </div>
+
+          <!-- Render error -->
+          <% if @bulletin.render_error.present? %>
+            <div class="alert alert-error mt-4">
+              <span><%= @bulletin.render_error %></span>
+            </div>
+          <% end %>
+
+          <!-- Video player (hidden until render complete) -->
+          <div id="player-container" class="mt-6 <%= 'hidden' unless @bulletin.render_status == 'done' %>">
+            <video id="bulletin-video" class="w-full rounded-xl bg-black" controls playsinline></video>
           </div>
         </div>
       </div>
     </div>
-  </div>
+  <% end %>
 </div>

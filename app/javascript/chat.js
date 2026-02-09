@@ -46,6 +46,7 @@ let USER_AVATAR = "";
 let USER_NAME = "You";
 let GROUP_NAME = "";
 let GROUP_MEMBERS = [];
+let bulletinMode = false;
 
 // ── Voice Recording ──────────────────────────
 let mediaRecorder = null;
@@ -63,6 +64,7 @@ function init() {
   USER_NAME = page.dataset.userName || "You";
   GROUP_NAME = page.dataset.groupName || "";
   try { GROUP_MEMBERS = JSON.parse(page.dataset.groupMembers || "[]"); } catch { GROUP_MEMBERS = []; }
+  bulletinMode = GROUP_NAME.length > 0;
 
   initTextInput();
   initMediaButtons();
@@ -531,17 +533,24 @@ async function handleTextSubmission(text) {
 async function handleMediaSelected(file, type) {
   if (state !== STATE.IDLE) return;
 
+  if (bulletinMode && type !== "video") {
+    await appendBotMessage("For the daily bulletin, please share a video clip.");
+    return;
+  }
+
   currentMediaFile = file;
   currentMediaType = type;
 
   appendMediaPreview(file, type);
 
-  await appendBotMessage(`Got it! I'll analyze your ${type} while we chat.`);
+  if (bulletinMode) {
+    analysisComplete = true;
+    await appendBotMessage("Got it! Let me ask you a few quick questions for the bulletin.");
+  } else {
+    await appendBotMessage(`Got it! I'll analyze your ${type} while we chat.`);
+    startBackgroundAnalysis(file, type);
+  }
 
-  // Fire background analysis (don't await)
-  startBackgroundAnalysis(file, type);
-
-  // Start questions immediately
   startContextQuestions();
 }
 
@@ -594,6 +603,11 @@ function startContextQuestions() {
 
 async function askNextContextQuestion() {
   if (contextQuestionIndex >= JOURNALIST_QUESTIONS.length) {
+    // In bulletin mode, skip follow-ups — go straight to submission
+    if (bulletinMode) {
+      onQuestionsComplete();
+      return;
+    }
     // All base questions asked — check for follow-ups
     if (analysisComplete && followUpQuestions.length > 0) {
       followUpIndex = 0;
@@ -648,6 +662,11 @@ async function onQuestionsComplete() {
   hideSuggestionPills();
   state = STATE.GENERATING;
   updateToolbarState();
+
+  if (bulletinMode) {
+    contributeToBulletin();
+    return;
+  }
 
   if (analysisComplete) {
     generateStory();
@@ -705,6 +724,52 @@ async function generateStory() {
     state = STATE.IDLE;
     updateToolbarState();
     await appendBotMessage("Something went wrong generating the story. Please try again.");
+  }
+}
+
+// ── Bulletin Contribution ─────────────────────
+async function contributeToBulletin() {
+  if (storyGenerationStarted) return;
+  storyGenerationStarted = true;
+
+  state = STATE.GENERATING;
+  updateToolbarState();
+  await appendBotMessage("Submitting your clip to today's bulletin...");
+  const typing = showTypingIndicator();
+
+  try {
+    const formData = new FormData();
+    formData.append("video", currentMediaFile);
+    if (contextAnswers.who) formData.append("who", contextAnswers.who);
+    if (contextAnswers.when) formData.append("when_answer", contextAnswers.when);
+    if (contextAnswers.where) formData.append("where_answer", contextAnswers.where);
+    if (contextAnswers.context) formData.append("context", contextAnswers.context);
+
+    const response = await fetch("/api/bulletin/contribute", {
+      method: "POST",
+      body: formData,
+    });
+
+    typing.remove();
+    const data = await response.json();
+
+    if (!data.ok) {
+      state = STATE.IDLE;
+      updateToolbarState();
+      await appendBotMessage(`Couldn't submit your clip: ${data.error}`);
+      return;
+    }
+
+    await appendBotMessage(
+      "Your video has been submitted to today's bulletin! " +
+      "Check the Studio to watch when it's ready."
+    );
+    resetState();
+  } catch (err) {
+    typing.remove();
+    state = STATE.IDLE;
+    updateToolbarState();
+    await appendBotMessage("Something went wrong submitting your clip. Please try again.");
   }
 }
 

@@ -1,0 +1,20 @@
+<div class="header">ME NEWS</div>
+
+<p>Hi <%= @user.name %>,</p>
+
+<p>
+  Your <strong><%= @group.name %></strong> daily bulletin for
+  <strong><%= @bulletin.bulletin_date&.strftime("%A, %B %-d") %></strong>
+  is ready to watch!
+</p>
+
+<p style="margin: 8px 0; color: #71717a; font-size: 14px;">
+  <%= @story_count %> <%= @story_count == 1 ? "story" : "stories" %> compiled into today's bulletin.
+</p>
+
+<div style="text-align: center; margin: 32px 0;">
+  <a href="<%= studio_url %>"
+     style="display: inline-block; padding: 12px 32px; background: #3b82f6; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600;">
+    Watch Now
+  </a>
+</div>

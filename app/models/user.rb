@@ -8,6 +8,7 @@ class User < ActiveRecord::Base
   has_many :groups, through: :group_memberships
   has_many :created_groups, class_name: "Group", foreign_key: :creator_id, dependent: :nullify
   has_many :created_invites, class_name: "GroupInvite", foreign_key: :created_by_id, dependent: :destroy
+  has_many :debug_stories, dependent: :nullify
 
   def in_any_group?
     groups.exists?
