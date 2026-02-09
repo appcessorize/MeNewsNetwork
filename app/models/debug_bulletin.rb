@@ -1,6 +1,8 @@
 class DebugBulletin < ApplicationRecord
   has_many :debug_stories, -> { order(:story_number) }, dependent: :destroy
   has_one_attached :weather_tts_audio
+  has_one_attached :welcome_tts_audio
+  has_one_attached :closing_tts_audio
 
   STATUSES = %w[draft analyzing ready failed].freeze
   RENDER_STATUSES = %w[queued rendering done failed].freeze

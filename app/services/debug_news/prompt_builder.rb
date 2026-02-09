@@ -59,6 +59,7 @@ module DebugNews
         - storyEmoji: exactly ONE emoji character that represents this story.
         - studioHeadline: 1-3 words, ALL CAPS (e.g. "PARK CHAOS", "LOCAL SPORT").
         - introText: 2-4 sentences. Must be written AS A SPOKEN NEWS SCRIPT. Warm, engaging, local-news style. 15-25 seconds reading time. Reference people/places by name from userContext. End with a natural lead-in to the video like "let's take a look" or "here's what happened".
+        - Do NOT start introText with positional phrases like "first up", "next up", "and now", "moving on", "finally". Jump straight into the story content. Each introText is read independently — avoid assuming position in a sequence.
         - subtitleSegments:
           - Must cover the FULL introText word-for-word.
           - Start at 0.0 and be monotonic increasing.
@@ -110,6 +111,63 @@ module DebugNews
         - No line breaks in segment text
 
         weatherJson: #{JSON.pretty_generate(weather_json)}
+      PROMPT
+    end
+
+    # Welcome & closing scripts — text-only
+    def self.welcome_closing_prompt(story_summaries:)
+      stories_list = story_summaries.map.with_index(1) do |s, i|
+        "#{i}. #{s[:emoji]} #{s[:title]}"
+      end.join("\n")
+
+      <<~PROMPT
+        You are a warm, charismatic local TV news anchor opening and closing tonight's community bulletin.
+
+        Rules:
+        - Output must be a single valid JSON object. No markdown, no backticks, no extra text.
+        - Write as SPOKEN script — contractions, natural phrasing, conversational tone.
+        - Reference the actual story topics in the welcome to preview what's coming.
+
+        Return STRICT JSON:
+        {
+          "welcomeScript": "string (3-4 sentences: greet viewers warmly, briefly preview the stories coming up by mentioning what they're about, set a friendly and upbeat tone)",
+          "closingScript": "string (2-3 sentences: wrap up the bulletin warmly, then include this CTA: 'Don't forget to add your videos, pictures and news in the app for tomorrow's bulletin.' End with a friendly sign-off.)"
+        }
+
+        Stories in tonight's bulletin:
+        #{stories_list}
+      PROMPT
+    end
+
+    # Script polish pass — rewrites all introTexts for coherence
+    def self.script_polish_prompt(stories:)
+      stories_list = stories.map.with_index(1) do |s, i|
+        "#{i}. Title: #{s[:title]}\n   Current introText: #{s[:intro_text]}"
+      end.join("\n\n")
+
+      <<~PROMPT
+        You are a broadcast news producer polishing the scripts for tonight's community news bulletin.
+        You have #{stories.length} story introductions that will be read by a news anchor on camera.
+        Each intro leads into a user-submitted video clip.
+
+        Rules:
+        - Output must be a single valid JSON object. No markdown, no backticks, no extra text.
+        - Rewrite each introText to create a coherent, varied bulletin flow.
+        - Do NOT start any intro with "first up", "next up", "and now", "moving on", "finally", or similar positional phrases.
+        - Vary the openers — some can jump straight into the action, some can set a scene, some can address the viewer.
+        - Maintain warm, local-news, conversational tone.
+        - Keep each intro 15-25 seconds reading time (roughly 40-65 words).
+        - Each intro must still end with a natural lead-in to the video (e.g. "let's take a look", "here's what happened").
+        - Preserve story-specific details (names, places, events) from the originals.
+        - Return the SAME number of intros in the SAME order.
+
+        Return STRICT JSON:
+        {
+          "introTexts": ["string", "string", ...]
+        }
+
+        Current scripts:
+        #{stories_list}
       PROMPT
     end
 

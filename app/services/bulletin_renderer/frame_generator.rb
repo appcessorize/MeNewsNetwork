@@ -194,9 +194,9 @@ class BulletinRenderer
       output
     end
 
-    # Generate a transparent overlay PNG for compositing on top of anchor video.
-    # Professional news lower third with branding, poster, headline, and accent bar.
-    def story_overlay(poster:, headline:, output:)
+    # Generate a transparent studio overlay PNG for compositing on anchor video.
+    # Simplified: ME NEWS logo top-left (red) + "TODAY'S UPDATE" bar at bottom.
+    def story_overlay(output:, poster: nil, headline: nil)
       # Transparent canvas
       canvas = MiniMagick::Image.create(".png") do |f|
         MiniMagick::Tool::Convert.new do |cmd|
@@ -206,126 +206,144 @@ class BulletinRenderer
         end
       end
 
-      # Top-left branding
-      canvas = add_branding(canvas)
-
-      # ── Lower third ──────────────────────────────
-      lower_third_y = HEIGHT - 420  # starts 420px from bottom
-      panel_height = 260
-
-      # Bottom gradient (taller, behind everything)
-      gradient = MiniMagick::Image.create(".png") do |f|
-        MiniMagick::Tool::Convert.new do |cmd|
-          cmd.size "#{WIDTH}x500"
-          cmd.merge! ["gradient:rgba(0,0,0,0.85)-rgba(0,0,0,0)"]
-          cmd.flip
-          cmd << f.path
-        end
-      end
-      canvas = canvas.composite(gradient) do |c|
-        c.compose "Over"
-        c.gravity "South"
-      end
-
-      # Semi-transparent panel
-      panel = MiniMagick::Image.create(".png") do |f|
-        MiniMagick::Tool::Convert.new do |cmd|
-          cmd.size "#{WIDTH}x#{panel_height}"
-          cmd.merge! ["xc:rgba(0,0,0,0.55)"]
-          cmd << f.path
-        end
-      end
-      canvas = canvas.composite(panel) do |c|
-        c.compose "Over"
-        c.geometry "+0+#{lower_third_y}"
-      end
-
-      # Red accent bar at top of panel
-      accent = MiniMagick::Image.create(".png") do |f|
-        MiniMagick::Tool::Convert.new do |cmd|
-          cmd.size "#{WIDTH}x4"
-          cmd.merge! ["xc:#{ACCENT_COLOR}"]
-          cmd << f.path
-        end
-      end
-      canvas = canvas.composite(accent) do |c|
-        c.compose "Over"
-        c.geometry "+0+#{lower_third_y}"
-      end
-
-      # "MOCK NEWS" label in accent color
-      label_img = render_text_image(
-        "MOCK NEWS",
-        size: 24,
-        width: 200,
-        height: 36,
+      # Top-left: ME NEWS in red
+      logo = render_text_image(
+        "ME NEWS",
+        size: 36,
+        width: 400,
+        height: 60,
         font: FONT_BOLD,
         color: ACCENT_COLOR,
         gravity: "West"
       )
-      canvas = canvas.composite(label_img) do |c|
+      canvas = canvas.composite(logo) do |c|
         c.compose "Over"
-        c.geometry "+48+#{lower_third_y + 24}"
+        c.gravity "NorthWest"
+        c.geometry "+40+80"
       end
 
-      # Headline text
+      # Bottom bar: white background, "TODAY'S UPDATE" in black
+      bar_height = 80
+      bar = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "#{WIDTH}x#{bar_height}"
+          cmd.merge! ["xc:rgba(255,255,255,0.92)"]
+          cmd << f.path
+        end
+      end
+      canvas = canvas.composite(bar) do |c|
+        c.compose "Over"
+        c.gravity "South"
+      end
+
+      bar_text = render_text_image(
+        "TODAY'S UPDATE",
+        size: 28,
+        width: WIDTH - 96,
+        height: bar_height - 20,
+        font: FONT_BOLD,
+        color: "black",
+        gravity: "West"
+      )
+      canvas = canvas.composite(bar_text) do |c|
+        c.compose "Over"
+        c.gravity "SouthWest"
+        c.geometry "+48+10"
+      end
+
+      canvas.write(output)
+      Rails.logger.info("[FrameGen] Studio overlay: #{output}")
+      output
+    end
+
+    # Generate a transparent overlay PNG for compositing on user videos.
+    # White info bar at bottom with red "ME NEWS" + black headline.
+    def user_video_overlay(headline:, output:)
+      canvas = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "#{WIDTH}x#{HEIGHT}"
+          cmd.merge! ["xc:none"]
+          cmd << f.path
+        end
+      end
+
+      # Top-left: small ME NEWS branding in white (semi-transparent)
+      small_logo = render_text_image(
+        "ME NEWS",
+        size: 24,
+        width: 200,
+        height: 40,
+        font: FONT_BOLD,
+        color: "rgba(255,255,255,0.6)",
+        gravity: "West"
+      )
+      canvas = canvas.composite(small_logo) do |c|
+        c.compose "Over"
+        c.gravity "NorthWest"
+        c.geometry "+32+60"
+      end
+
+      # Bottom info bar (~100px)
+      bar_height = 100
+      bar = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "#{WIDTH}x#{bar_height}"
+          cmd.merge! ["xc:rgba(255,255,255,0.92)"]
+          cmd << f.path
+        end
+      end
+      canvas = canvas.composite(bar) do |c|
+        c.compose "Over"
+        c.gravity "South"
+      end
+
+      # Red "ME NEWS" label on left of bar
+      label = render_text_image(
+        "ME NEWS",
+        size: 20,
+        width: 140,
+        height: 30,
+        font: FONT_BOLD,
+        color: ACCENT_COLOR,
+        gravity: "West"
+      )
+      canvas = canvas.composite(label) do |c|
+        c.compose "Over"
+        c.gravity "SouthWest"
+        c.geometry "+32+52"
+      end
+
+      # Black headline text (right of logo area)
       headline_img = render_text_image(
         (headline || "").upcase,
-        size: 44,
-        width: WIDTH - 96,
-        height: 160,
+        size: 28,
+        width: WIDTH - 220,
+        height: 70,
         font: FONT_BOLD,
-        color: "white",
+        color: "black",
         gravity: "NorthWest"
       )
       canvas = canvas.composite(headline_img) do |c|
         c.compose "Over"
-        c.geometry "+48+#{lower_third_y + 70}"
-      end
-
-      # Poster thumbnail (right side, above lower third)
-      if poster && File.exist?(poster)
-        poster_img = MiniMagick::Image.open(poster)
-        poster_img.resize "320x320^"
-        poster_img.gravity "center"
-        poster_img.extent "320x320"
-
-        # Round corners
-        mask = MiniMagick::Image.create(".png") do |f|
-          MiniMagick::Tool::Convert.new do |cmd|
-            cmd.size "320x320"
-            cmd.merge! ["xc:none"]
-            cmd.fill "white"
-            cmd.draw "roundrectangle 0,0 319,319 16,16"
-            cmd << f.path
-          end
-        end
-        poster_img = poster_img.composite(mask) do |c|
-          c.compose "DstIn"
-        end
-
-        canvas = canvas.composite(poster_img) do |c|
-          c.compose "Over"
-          c.gravity "East"
-          c.geometry "+60+#{-HEIGHT / 6}"
-        end
+        c.gravity "SouthWest"
+        c.geometry "+180+15"
       end
 
       canvas.write(output)
-      Rails.logger.info("[FrameGen] Story overlay: #{output}")
+      Rails.logger.info("[FrameGen] User video overlay: #{output}")
       output
     end
 
     private
 
-    def add_branding(canvas)
+    def add_branding(canvas, color: "rgba(255,255,255,0.7)")
       branding = render_text_image(
-        "MOCK NEWS",
+        "ME NEWS",
         size: 36,
         width: 400,
         height: 60,
         font: FONT_BOLD,
-        color: "rgba(255,255,255,0.7)"
+        color: color
       )
       canvas.composite(branding) do |c|
         c.compose "Over"

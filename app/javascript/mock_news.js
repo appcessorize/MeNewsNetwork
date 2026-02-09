@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────
-//  Mock News Report — Debug Flow
+//  Me News Report — Debug Flow
 // ──────────────────────────────────────────────
 import Hls from "hls.js";
 
@@ -47,7 +47,7 @@ function init() {
   bindFileInput();
   bindButtons();
   restoreSavedVideos();
-  log("Mock News debug page ready.");
+  log("Me News debug page ready.");
 }
 
 if (document.readyState === "loading") {
@@ -761,7 +761,7 @@ function log(message) {
   const line = `[${time} +${elapsed}s] ${message}`;
   el.textContent += line + "\n";
   el.scrollTop = el.scrollHeight;
-  console.log(`[MockNews +${elapsed}s]`, message);
+  console.log(`[MeNews +${elapsed}s]`, message);
 }
 
 // ── Utilities ─────────────────────────────────

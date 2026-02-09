@@ -45,6 +45,16 @@ class BulletinRenderer
     segment_paths = []
     total_stories = stories.count
     studio_bg = Rails.root.join("public", "newsBgEdited.jpeg").to_s
+    welcome_inputs = download_welcome_inputs
+    closing_inputs = download_closing_inputs
+
+    # Welcome segment (before opening bumper)
+    if welcome_inputs[:tts]
+      update_progress(11, "Rendering welcome segment")
+      welcome_seg = render_welcome_segment(welcome_inputs)
+      log_segment_duration(welcome_seg, "welcome")
+      segment_paths << { path: welcome_seg, type: :studio }
+    end
 
     # Opening bumper
     if bumper_path
@@ -56,7 +66,7 @@ class BulletinRenderer
     # Per-story segments
     stories.each_with_index do |story, idx|
       inputs = story_inputs[story.id]
-      pct = 10 + ((idx.to_f / total_stories) * 50).to_i
+      pct = 12 + ((idx.to_f / total_stories) * 48).to_i
       update_progress(pct, "Rendering story #{idx + 1}/#{total_stories}: #{story.story_title}")
 
       # Studio intro segment
@@ -74,17 +84,25 @@ class BulletinRenderer
 
     # Weather segment
     if weather_inputs[:tts]
-      update_progress(65, "Rendering weather segment")
+      update_progress(62, "Rendering weather segment")
       weather_seg = render_weather_segment(weather_inputs, studio_bg)
       log_segment_duration(weather_seg, "weather")
       segment_paths << { path: weather_seg, type: :studio }
     end
 
+    # Closing segment (after weather, before closing bumper)
+    if closing_inputs[:tts]
+      update_progress(66, "Rendering closing segment")
+      closing_seg = render_closing_segment(closing_inputs)
+      log_segment_duration(closing_seg, "closing")
+      segment_paths << { path: closing_seg, type: :studio }
+    end
+
     # Closing bumper
     if bumper_path
-      closing_seg = render_bumper_segment(bumper_path, "closing")
-      log_segment_duration(closing_seg, "closing bumper")
-      segment_paths << { path: closing_seg, type: :bumper }
+      outro_seg = render_bumper_segment(bumper_path, "closing")
+      log_segment_duration(outro_seg, "closing bumper")
+      segment_paths << { path: outro_seg, type: :bumper }
     end
 
     # Phase 2: Concat all segments
@@ -232,6 +250,30 @@ class BulletinRenderer
     data
   end
 
+  def download_welcome_inputs
+    data = { tts: nil }
+    if bulletin.welcome_tts_audio.attached?
+      welcome_dir = File.join(@work_dir, "welcome")
+      FileUtils.mkdir_p(welcome_dir)
+      tts_path = File.join(welcome_dir, "welcome_tts.wav")
+      File.binwrite(tts_path, bulletin.welcome_tts_audio.download)
+      data[:tts] = tts_path
+    end
+    data
+  end
+
+  def download_closing_inputs
+    data = { tts: nil }
+    if bulletin.closing_tts_audio.attached?
+      closing_dir = File.join(@work_dir, "closing")
+      FileUtils.mkdir_p(closing_dir)
+      tts_path = File.join(closing_dir, "closing_tts.wav")
+      File.binwrite(tts_path, bulletin.closing_tts_audio.download)
+      data[:tts] = tts_path
+    end
+    data
+  end
+
   # ── Segment rendering ────────────────────────
 
   def render_bumper_segment(bumper_path, label)
@@ -263,11 +305,7 @@ class BulletinRenderer
     if File.exist?(ANCHOR_VIDEO_PATH)
       # Anchor video background with transparent overlay
       overlay_path = File.join(story_dir, "overlay.png")
-      @frame_gen.story_overlay(
-        poster: inputs[:poster],
-        headline: headline,
-        output: overlay_path
-      )
+      @frame_gen.story_overlay(output: overlay_path)
 
       if inputs[:tts]
         tts_duration = @ffmpeg.probe_duration(inputs[:tts])
@@ -347,14 +385,22 @@ class BulletinRenderer
   def render_user_video_segment(video_path, story)
     story_dir = File.join(@work_dir, "story_#{story.id}")
     output = File.join(story_dir, "user_video.mp4")
+    headline = story.gemini_json&.dig("studioHeadline") || story.story_title&.upcase
 
-    # Scale/pad to 1080x1920, force 30fps CFR, keep original audio
+    # Generate info bar overlay PNG
+    overlay_path = File.join(story_dir, "user_overlay.png")
+    @frame_gen.user_video_overlay(headline: headline, output: overlay_path)
+
+    # Scale/pad to 1080x1920, composite info bar overlay, force 30fps CFR, keep original audio
     cmd = [
       "ffmpeg -y -i #{esc(video_path)}",
-      "-vf 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=#{FPS}'",
+      "-loop 1 -framerate #{FPS} -i #{esc(overlay_path)}",
+      "-filter_complex '[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=#{FPS}[bg];[bg][1:v]overlay=0:0[out]'",
+      "-map [out] -map 0:a?",
       "-r #{FPS}",
       VIDEO_CODEC,
       AUDIO_CODEC,
+      "-shortest",
       esc(output)
     ].join(" ")
 
@@ -407,6 +453,62 @@ class BulletinRenderer
     ].join(" ")
 
     @ffmpeg.run(cmd, label: "weather_segment")
+    output
+  end
+
+  def render_welcome_segment(welcome_inputs)
+    welcome_dir = File.join(@work_dir, "welcome")
+    FileUtils.mkdir_p(welcome_dir)
+    output = File.join(welcome_dir, "welcome_segment.mp4")
+
+    overlay_path = File.join(welcome_dir, "overlay.png")
+    @frame_gen.story_overlay(output: overlay_path)
+
+    tts_duration = @ffmpeg.probe_duration(welcome_inputs[:tts])
+
+    cmd = [
+      "ffmpeg -y",
+      "-stream_loop -1 -i #{esc(ANCHOR_VIDEO_PATH)}",
+      "-loop 1 -framerate #{FPS} -i #{esc(overlay_path)}",
+      "-i #{esc(welcome_inputs[:tts])}",
+      "-filter_complex '[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=#{FPS}[bg];[bg][1:v]overlay=0:0[out]'",
+      "-map [out] -map 2:a:0",
+      "-t #{tts_duration.round(2)}",
+      "-r #{FPS}",
+      VIDEO_CODEC,
+      AUDIO_CODEC,
+      esc(output)
+    ].join(" ")
+
+    @ffmpeg.run(cmd, label: "welcome_segment")
+    output
+  end
+
+  def render_closing_segment(closing_inputs)
+    closing_dir = File.join(@work_dir, "closing")
+    FileUtils.mkdir_p(closing_dir)
+    output = File.join(closing_dir, "closing_segment.mp4")
+
+    overlay_path = File.join(closing_dir, "overlay.png")
+    @frame_gen.story_overlay(output: overlay_path)
+
+    tts_duration = @ffmpeg.probe_duration(closing_inputs[:tts])
+
+    cmd = [
+      "ffmpeg -y",
+      "-stream_loop -1 -i #{esc(ANCHOR_VIDEO_PATH)}",
+      "-loop 1 -framerate #{FPS} -i #{esc(overlay_path)}",
+      "-i #{esc(closing_inputs[:tts])}",
+      "-filter_complex '[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=#{FPS}[bg];[bg][1:v]overlay=0:0[out]'",
+      "-map [out] -map 2:a:0",
+      "-t #{tts_duration.round(2)}",
+      "-r #{FPS}",
+      VIDEO_CODEC,
+      AUDIO_CODEC,
+      esc(output)
+    ].join(" ")
+
+    @ffmpeg.run(cmd, label: "closing_segment")
     output
   end
 

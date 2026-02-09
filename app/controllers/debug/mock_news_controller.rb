@@ -228,7 +228,99 @@ module Debug
         end
       end
 
-      master = assemble_master_json(bulletin)
+      # ── Script polish pass ──────────────────────────
+      done_stories = bulletin.debug_stories.where(status: "done").order(:story_number)
+      begin
+        stories_for_polish = done_stories.map do |s|
+          { title: s.story_title, intro_text: s.intro_text }
+        end
+
+        if stories_for_polish.length > 1
+          Rails.logger.info("[debug_news] Polishing #{stories_for_polish.length} story scripts...")
+          generator = Gemini::ContentGenerator.new
+          polish_result = generator.generate_json(
+            DebugNews::PromptBuilder.script_polish_prompt(stories: stories_for_polish),
+            temperature: 0.7
+          )
+          polished = polish_result[:parsed]
+          intro_texts = polished["introTexts"] || polished[:introTexts] || []
+
+          if intro_texts.length == done_stories.length
+            done_stories.each_with_index do |story, idx|
+              new_text = intro_texts[idx]
+              next if new_text.blank?
+
+              story.update!(intro_text: new_text)
+              Rails.logger.info("[debug_news] Story ##{story.story_number} intro polished")
+
+              # Regenerate TTS with polished text
+              begin
+                pcm = Gemini::TtsGenerator.new.generate(text: new_text, voice: "Orus")
+                wav = Audio::WavBuilder.build(pcm)
+                story.tts_audio.attach(
+                  io: StringIO.new(wav),
+                  filename: "tts_story_#{story.story_number}.wav",
+                  content_type: "audio/wav"
+                )
+                Rails.logger.info("[debug_news] Story ##{story.story_number} TTS regenerated")
+              rescue => e
+                Rails.logger.warn("[debug_news] Story ##{story.story_number} TTS regen failed (non-fatal): #{e.message}")
+              end
+            end
+          else
+            Rails.logger.warn("[debug_news] Polish returned #{intro_texts.length} intros, expected #{done_stories.length} — skipping")
+          end
+        end
+      rescue => e
+        Rails.logger.warn("[debug_news] Script polish failed (non-fatal): #{e.message}")
+      end
+
+      # ── Welcome & closing scripts + TTS ────────────
+      begin
+        story_summaries = done_stories.reload.map do |s|
+          { emoji: s.story_emoji, title: s.story_title }
+        end
+
+        Rails.logger.info("[debug_news] Generating welcome/closing scripts...")
+        generator ||= Gemini::ContentGenerator.new
+        wc_result = generator.generate_json(
+          DebugNews::PromptBuilder.welcome_closing_prompt(story_summaries: story_summaries),
+          temperature: 0.7
+        )
+        wc = wc_result[:parsed]
+        welcome_script = wc["welcomeScript"] || wc[:welcomeScript]
+        closing_script = wc["closingScript"] || wc[:closingScript]
+
+        if welcome_script.present?
+          Rails.logger.info("[debug_news] Generating welcome TTS...")
+          pcm = Gemini::TtsGenerator.new.generate(text: welcome_script, voice: "Orus")
+          wav = Audio::WavBuilder.build(pcm)
+          bulletin.welcome_tts_audio.attach(
+            io: StringIO.new(wav),
+            filename: "welcome_tts.wav",
+            content_type: "audio/wav"
+          )
+          Rails.logger.info("[debug_news] Welcome TTS attached")
+        end
+
+        if closing_script.present?
+          Rails.logger.info("[debug_news] Generating closing TTS...")
+          pcm = Gemini::TtsGenerator.new.generate(text: closing_script, voice: "Orus")
+          wav = Audio::WavBuilder.build(pcm)
+          bulletin.closing_tts_audio.attach(
+            io: StringIO.new(wav),
+            filename: "closing_tts.wav",
+            content_type: "audio/wav"
+          )
+          Rails.logger.info("[debug_news] Closing TTS attached")
+        end
+      rescue => e
+        Rails.logger.warn("[debug_news] Welcome/closing generation failed (non-fatal): #{e.message}")
+      end
+
+      master = assemble_master_json(bulletin.reload)
+      master[:welcomeScript] = welcome_script if defined?(welcome_script) && welcome_script.present?
+      master[:closingScript] = closing_script if defined?(closing_script) && closing_script.present?
       bulletin.update!(master_json: master, status: "ready")
 
       Rails.logger.info("[debug_news] Bulletin ##{bulletin.id} built with #{master[:stories].length} stories")
