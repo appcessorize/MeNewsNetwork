@@ -434,9 +434,9 @@ class BulletinRenderer
 
     # Build a single nested if() expression for the volume filter
     # Innermost fallback is 0.18 (default)
-    # No backslash escaping needed — filter_complex_script reads from file, not shell
+    # Commas must be escaped with \ — FFmpeg's filtergraph parser uses , as filter separator
     expr = ranges.reverse.reduce("0.18") do |fallback, r|
-      "if(between(t,#{r[:start]},#{r[:finish]}),#{r[:vol]},#{fallback})"
+      "if(between(t\\,#{r[:start]}\\,#{r[:finish]})\\,#{r[:vol]}\\,#{fallback})"
     end
 
     "[1:a]volume=#{expr}"
