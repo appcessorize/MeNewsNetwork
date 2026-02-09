@@ -945,7 +945,6 @@ async function pollAnalysisStatus(bubble) {
         const statusParts = [];
         if (stories_done > 0) statusParts.push(`${stories_done} done`);
         if (stories_analyzing > 0) statusParts.push(`${stories_analyzing} analyzing`);
-        if (stories_failed > 0) statusParts.push(`${stories_failed} failed`);
         const statusText = statusParts.join(", ") || "waiting...";
 
         bubble.innerHTML = `<div class="flex items-center gap-2"><span class="loading loading-spinner loading-sm"></span><span class="text-sm">Analyzing stories (${statusText})...</span></div>`;

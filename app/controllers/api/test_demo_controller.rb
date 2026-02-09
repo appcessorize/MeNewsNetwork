@@ -13,6 +13,9 @@ module Api
 
       bulletin = DebugBulletin.find_or_create_for_group_today!(group)
 
+      # Clean up failed stories so they don't inflate counts or confuse status
+      bulletin.debug_stories.where(status: "failed").destroy_all
+
       if bulletin.debug_stories.where(status: "done").empty?
         return render json: { ok: false, error: "No analyzed stories to build a bulletin from" }, status: :unprocessable_entity
       end
@@ -83,7 +86,7 @@ module Api
         ok: true,
         bulletin_id: bulletin.id,
         bulletin_status: bulletin.status,
-        stories_total: stories.length,
+        stories_total: done_count + analyzing_count,
         stories_done: done_count,
         stories_failed: failed_count,
         stories_analyzing: analyzing_count,

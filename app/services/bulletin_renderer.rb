@@ -36,7 +36,7 @@ class BulletinRenderer
     # Phase 0: Download all inputs from R2
     log("[Render] Downloading bumper...")
     bumper_path = download_bumper
-    stories = bulletin.debug_stories.where(status: "done", user_id: nil).order(:story_number)
+    stories = bulletin.debug_stories.where(status: "done").order(:story_number)
     log("[Render] Found #{stories.count} done stories: #{stories.map { |s| "##{s.story_number} #{s.story_title}" }.join(', ')}")
     log("[Render] Downloading story inputs...")
     story_inputs = download_story_inputs(stories)
