@@ -4,6 +4,9 @@ class BulletinRenderer
   class FrameGenerator
     WIDTH = 1080
     HEIGHT = 1920
+    FONT_BOLD = Rails.root.join("app", "assets", "fonts", "Inter-Bold.ttf").to_s
+    FONT_REGULAR = Rails.root.join("app", "assets", "fonts", "Inter-Regular.ttf").to_s
+    ACCENT_COLOR = "#E63946"
 
     # Generate a studio frame PNG for a story intro
     # Composites: background image + poster thumbnail + emoji PNG + headline + gradient
@@ -74,7 +77,7 @@ class BulletinRenderer
         size: 52,
         width: WIDTH - 80,
         height: 200,
-        font: "DejaVu-Sans-Bold",
+        font: FONT_BOLD,
         color: "white",
         background: "rgba(0,0,0,0.6)"
       )
@@ -149,7 +152,7 @@ class BulletinRenderer
       end
 
       # Temperature
-      temp_img = render_text_image(temp_str, size: 120, width: 500, height: 200, font: "DejaVu-Sans-Bold", color: "white")
+      temp_img = render_text_image(temp_str, size: 120, width: 500, height: 200, font: FONT_BOLD, color: "white")
       canvas = canvas.composite(temp_img) do |c|
         c.compose "Over"
         c.gravity "North"
@@ -192,7 +195,7 @@ class BulletinRenderer
     end
 
     # Generate a transparent overlay PNG for compositing on top of anchor video.
-    # Contains branding, poster thumbnail, headline text, and bottom gradient — no background.
+    # Professional news lower third with branding, poster, headline, and accent bar.
     def story_overlay(poster:, headline:, output:)
       # Transparent canvas
       canvas = MiniMagick::Image.create(".png") do |f|
@@ -203,44 +206,18 @@ class BulletinRenderer
         end
       end
 
-      # Branding
+      # Top-left branding
       canvas = add_branding(canvas)
 
-      # Poster thumbnail (right side)
-      if poster && File.exist?(poster)
-        poster_img = MiniMagick::Image.open(poster)
-        poster_img.resize "352x352^"
-        poster_img.gravity "center"
-        poster_img.extent "352x352"
+      # ── Lower third ──────────────────────────────
+      lower_third_y = HEIGHT - 420  # starts 420px from bottom
+      panel_height = 260
 
-        canvas = canvas.composite(poster_img) do |c|
-          c.compose "Over"
-          c.gravity "East"
-          c.geometry "+100+#{-HEIGHT / 8}"
-        end
-      end
-
-      # Headline text at bottom
-      headline_img = render_text_image(
-        (headline || "").upcase,
-        size: 52,
-        width: WIDTH - 80,
-        height: 200,
-        font: "DejaVu-Sans-Bold",
-        color: "white",
-        background: "rgba(0,0,0,0.6)"
-      )
-      canvas = canvas.composite(headline_img) do |c|
-        c.compose "Over"
-        c.gravity "South"
-        c.geometry "+0+280"
-      end
-
-      # Bottom gradient
+      # Bottom gradient (taller, behind everything)
       gradient = MiniMagick::Image.create(".png") do |f|
         MiniMagick::Tool::Convert.new do |cmd|
-          cmd.size "#{WIDTH}x400"
-          cmd.merge! ["gradient:rgba(0,0,0,0.8)-rgba(0,0,0,0)"]
+          cmd.size "#{WIDTH}x500"
+          cmd.merge! ["gradient:rgba(0,0,0,0.85)-rgba(0,0,0,0)"]
           cmd.flip
           cmd << f.path
         end
@@ -248,6 +225,90 @@ class BulletinRenderer
       canvas = canvas.composite(gradient) do |c|
         c.compose "Over"
         c.gravity "South"
+      end
+
+      # Semi-transparent panel
+      panel = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "#{WIDTH}x#{panel_height}"
+          cmd.merge! ["xc:rgba(0,0,0,0.55)"]
+          cmd << f.path
+        end
+      end
+      canvas = canvas.composite(panel) do |c|
+        c.compose "Over"
+        c.geometry "+0+#{lower_third_y}"
+      end
+
+      # Red accent bar at top of panel
+      accent = MiniMagick::Image.create(".png") do |f|
+        MiniMagick::Tool::Convert.new do |cmd|
+          cmd.size "#{WIDTH}x4"
+          cmd.merge! ["xc:#{ACCENT_COLOR}"]
+          cmd << f.path
+        end
+      end
+      canvas = canvas.composite(accent) do |c|
+        c.compose "Over"
+        c.geometry "+0+#{lower_third_y}"
+      end
+
+      # "MOCK NEWS" label in accent color
+      label_img = render_text_image(
+        "MOCK NEWS",
+        size: 24,
+        width: 200,
+        height: 36,
+        font: FONT_BOLD,
+        color: ACCENT_COLOR,
+        gravity: "West"
+      )
+      canvas = canvas.composite(label_img) do |c|
+        c.compose "Over"
+        c.geometry "+48+#{lower_third_y + 24}"
+      end
+
+      # Headline text
+      headline_img = render_text_image(
+        (headline || "").upcase,
+        size: 44,
+        width: WIDTH - 96,
+        height: 160,
+        font: FONT_BOLD,
+        color: "white",
+        gravity: "NorthWest"
+      )
+      canvas = canvas.composite(headline_img) do |c|
+        c.compose "Over"
+        c.geometry "+48+#{lower_third_y + 70}"
+      end
+
+      # Poster thumbnail (right side, above lower third)
+      if poster && File.exist?(poster)
+        poster_img = MiniMagick::Image.open(poster)
+        poster_img.resize "320x320^"
+        poster_img.gravity "center"
+        poster_img.extent "320x320"
+
+        # Round corners
+        mask = MiniMagick::Image.create(".png") do |f|
+          MiniMagick::Tool::Convert.new do |cmd|
+            cmd.size "320x320"
+            cmd.merge! ["xc:none"]
+            cmd.fill "white"
+            cmd.draw "roundrectangle 0,0 319,319 16,16"
+            cmd << f.path
+          end
+        end
+        poster_img = poster_img.composite(mask) do |c|
+          c.compose "DstIn"
+        end
+
+        canvas = canvas.composite(poster_img) do |c|
+          c.compose "Over"
+          c.gravity "East"
+          c.geometry "+60+#{-HEIGHT / 6}"
+        end
       end
 
       canvas.write(output)
@@ -263,7 +324,7 @@ class BulletinRenderer
         size: 36,
         width: 400,
         height: 60,
-        font: "DejaVu-Sans-Bold",
+        font: FONT_BOLD,
         color: "rgba(255,255,255,0.7)"
       )
       canvas.composite(branding) do |c|
@@ -273,12 +334,12 @@ class BulletinRenderer
       end
     end
 
-    def render_text_image(text, size:, width:, height:, font: "DejaVu-Sans", color: "white", background: "none")
+    def render_text_image(text, size:, width:, height:, font: FONT_REGULAR, color: "white", background: "none", gravity: "Center")
       img = MiniMagick::Image.create(".png") do |f|
         MiniMagick::Tool::Convert.new do |cmd|
           cmd.size "#{width}x#{height}"
           cmd.merge! ["xc:#{background}"]
-          cmd.gravity "Center"
+          cmd.gravity gravity
           cmd.fill color
           cmd.font font
           cmd.pointsize size
