@@ -225,7 +225,7 @@ class BulletinRenderer
       SILENT_AUDIO,
       "-map 0:v:0 -map 1:a:0",
       "-t 10",  # Cap bumper at 10s
-      "-vf scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+      "-vf 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black'",
       VIDEO_CODEC,
       "-shortest",
       AUDIO_CODEC,
@@ -300,7 +300,7 @@ class BulletinRenderer
     # Scale/pad to 1080x1920, keep original audio
     cmd = [
       "ffmpeg -y -i #{esc(video_path)}",
-      "-vf scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+      "-vf 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black'",
       VIDEO_CODEC,
       AUDIO_CODEC,
       esc(output)
