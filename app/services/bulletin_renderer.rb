@@ -34,9 +34,16 @@ class BulletinRenderer
     update_progress(0, "Preparing inputs")
 
     # Phase 0: Download all inputs from R2
+    log("[Render] Downloading bumper...")
     bumper_path = download_bumper
     stories = bulletin.debug_stories.where(status: "done").order(:story_number)
+    log("[Render] Found #{stories.count} done stories: #{stories.map { |s| "##{s.story_number} #{s.story_title}" }.join(', ')}")
+    log("[Render] Downloading story inputs...")
     story_inputs = download_story_inputs(stories)
+    story_inputs.each do |story_id, data|
+      log("[Render] Story #{story_id}: video=#{data[:video].present?}, tts=#{data[:tts].present?}, poster=#{data[:poster].present?}")
+    end
+    log("[Render] Downloading weather inputs...")
     weather_inputs = download_weather_inputs
 
     update_progress(10, "Rendering segments")
@@ -69,16 +76,22 @@ class BulletinRenderer
       pct = 12 + ((idx.to_f / total_stories) * 48).to_i
       update_progress(pct, "Rendering story #{idx + 1}/#{total_stories}: #{story.story_title}")
 
+      log("[Render] Story #{idx + 1}/#{total_stories}: id=#{story.id}, title=#{story.story_title.inspect}, video=#{inputs[:video].present?}, tts=#{inputs[:tts].present?}, poster=#{inputs[:poster].present?}")
+
       # Studio intro segment
+      log("[Render] Starting studio intro for story #{story.story_number}...")
       studio_seg = render_studio_segment(story, inputs, studio_bg)
       log_segment_duration(studio_seg, "studio story #{story.story_number}")
       segment_paths << { path: studio_seg, type: :studio }
 
       # User video segment
       if inputs[:video]
+        log("[Render] Starting user video for story #{story.story_number} (file: #{inputs[:video]}, size: #{(File.size(inputs[:video]) / 1e6).round(2)} MB)...")
         video_seg = render_user_video_segment(inputs[:video], story)
         log_segment_duration(video_seg, "user video story #{story.story_number}")
         segment_paths << { path: video_seg, type: :user_video }
+      else
+        log("[Render] No user video for story #{story.story_number}, skipping")
       end
     end
 
@@ -106,12 +119,15 @@ class BulletinRenderer
     end
 
     # Phase 2: Concat all segments
+    log("[Render] Total segments to concat: #{segment_paths.count}")
     update_progress(70, "Concatenating segments")
     concat_path = concat_segments(segment_paths.map { |s| s[:path] })
+    log("[Render] Concat output: #{(File.size(concat_path) / 1e6).round(2)} MB")
 
     # Phase 2b: Mix background music
     update_progress(80, "Mixing background music")
     final_path = mix_background_music(concat_path, segment_paths)
+    log("[Render] Final video: #{(File.size(final_path) / 1e6).round(2)} MB")
 
     # Phase 3: Upload to CF Stream
     update_progress(90, "Uploading to Cloudflare Stream")

@@ -7,7 +7,8 @@ module Api
 
       generator = Gemini::ContentGenerator.new
       result = generator.generate_text(
-        "What is the weather typically like in London in January? Reply in one sentence."
+        "What is the weather typically like in London in January? Reply in one sentence.",
+        model: "gemini-3-flash-preview"
       )
 
       Rails.logger.info("[test-gemini] Success: #{result}")

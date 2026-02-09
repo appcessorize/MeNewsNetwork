@@ -6,15 +6,20 @@ class BulletinRenderer
 
     # Execute an FFmpeg/FFprobe command, log output, raise on failure
     def run(command, label: "ffmpeg")
-      Rails.logger.info("[FFmpeg] #{label}: #{command}")
+      Rails.logger.info("[FFmpeg] START #{label}: #{command}")
+      t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       stdout, stderr, status = Open3.capture3(command)
 
+      elapsed = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0).round(2)
+
       unless status.success?
         error_tail = stderr.to_s.split("\n").last(20).join("\n")
+        Rails.logger.error("[FFmpeg] FAILED #{label} after #{elapsed}s (exit #{status.exitstatus}):\n#{error_tail}")
         raise FfmpegError, "#{label} failed (exit #{status.exitstatus}):\n#{error_tail}"
       end
 
+      Rails.logger.info("[FFmpeg] DONE #{label} in #{elapsed}s")
       { stdout: stdout, stderr: stderr }
     end
 
