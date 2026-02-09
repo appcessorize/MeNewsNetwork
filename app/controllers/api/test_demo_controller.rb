@@ -15,11 +15,6 @@ module Api
 
       # Clean up failed stories so they don't inflate counts or confuse status
       bulletin.debug_stories.where(status: "failed").destroy_all
-      # Wipe old seed stories so the seeder always creates a fresh set of 3
-      bulletin.debug_stories.where(user_id: nil).destroy_all
-      # Keep only the user's latest done story
-      user_done = bulletin.debug_stories.where(user_id: current_user.id, status: "done").order(created_at: :desc)
-      user_done.offset(1).destroy_all if user_done.count > 1
 
       if bulletin.debug_stories.where(status: "done").empty?
         return render json: { ok: false, error: "No analyzed stories to build a bulletin from" }, status: :unprocessable_entity
@@ -38,6 +33,15 @@ module Api
       BulletinBuilder.new(bulletin).build!
       bulletin.reload
       Rails.logger.info("[TestDemo] Bulletin ##{bulletin.id} built, status=#{bulletin.status}")
+
+      # Verify user's story is in the built JSON
+      user_story_ids = bulletin.debug_stories.where(user_id: current_user.id, status: "done").pluck(:id)
+      json_story_ids = bulletin.master_json&.dig("stories")&.map { |s| s["storyId"] } || []
+      Rails.logger.info("[TestDemo] User story IDs: #{user_story_ids}, JSON story IDs: #{json_story_ids}")
+      missing = user_story_ids - json_story_ids
+      if missing.any?
+        Rails.logger.error("[TestDemo] WARNING: User stories #{missing} NOT in master JSON!")
+      end
 
       unless bulletin.status == "ready"
         return render json: { ok: false, error: "Bulletin build failed (status: #{bulletin.status})" }, status: :unprocessable_entity

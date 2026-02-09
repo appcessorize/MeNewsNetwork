@@ -57,6 +57,7 @@ let testUserName = "";
 let testMultiMode = false;
 let testBulletinId = null;
 let testVideoCount = 0;
+let testUserStoryIds = [];
 
 // ── Init ─────────────────────────────────────
 function init() {
@@ -683,12 +684,16 @@ async function contributeToBulletin() {
     if (isTestUser && testMultiMode) {
       testVideoCount++;
       testBulletinId = data.bulletin_id;
+      testUserStoryIds.push(data.story_id);
+      console.log("[TestBulletin] Multi-mode video submitted — story_id:", data.story_id, "all user story IDs:", testUserStoryIds);
       await appendBotMessage(`Video ${testVideoCount} submitted! You can add more videos or generate your multi-story bulletin now.`);
       showMultiUploadChoiceButtons();
       return;
     }
 
     if (isTestUser) {
+      testUserStoryIds.push(data.story_id);
+      console.log("[TestBulletin] User video submitted — story_id:", data.story_id, "all user story IDs:", testUserStoryIds);
       await appendBotMessage("Your video has been submitted! Now let's generate your bulletin video.");
       showGenerateBulletinButton(data.bulletin_id);
       return;
@@ -824,6 +829,7 @@ function resetState() {
   testMultiMode = false;
   testBulletinId = null;
   testVideoCount = 0;
+  testUserStoryIds = [];
   hideSuggestionPills();
   updateToolbarState();
 }
@@ -913,6 +919,7 @@ async function generateTestBulletin(bulletinId) {
       headers: { "Content-Type": "application/json" },
     });
     const data = await response.json();
+    console.log("[TestBulletin] Generate response:", data);
 
     if (!data.ok) {
       typing.remove();
@@ -938,6 +945,21 @@ async function pollAnalysisStatus(bubble) {
       const data = await resp.json();
 
       if (!data.ok) continue;
+
+      if (data.stories) {
+        const storyIds = data.stories.map(s => s.id);
+        const userStoriesPresent = testUserStoryIds.filter(id => storyIds.includes(id));
+        const userStoriesMissing = testUserStoryIds.filter(id => !storyIds.includes(id));
+        console.log("[TestBulletin] Status poll:", {
+          all_done: data.all_done,
+          stories: data.stories.map(s => `${s.story_title} (id=${s.id}, status=${s.status})`),
+          userStoriesPresent,
+          userStoriesMissing
+        });
+        if (userStoriesMissing.length > 0) {
+          console.warn("[TestBulletin] WARNING: User story IDs missing from bulletin:", userStoriesMissing);
+        }
+      }
 
       const { stories_done, stories_analyzing, stories_failed, stories_total } = data;
 

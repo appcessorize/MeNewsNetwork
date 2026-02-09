@@ -32,6 +32,9 @@ class RenderBulletinJob < ApplicationJob
         bulletin.update_columns(render_progress: pct, render_step: step)
       })
 
+      stories_summary = bulletin.master_json&.dig("stories")&.map { |s| "#{s['storyTitle']} (id=#{s['storyId']})" }&.join(", ") || "no stories in JSON"
+      Rails.logger.info("[RenderJob] Bulletin ##{bulletin_id} master_json stories: #{stories_summary}")
+
       result = renderer.render!
 
       bulletin.update!(

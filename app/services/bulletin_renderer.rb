@@ -38,6 +38,8 @@ class BulletinRenderer
     bumper_path = download_bumper
     stories = bulletin.debug_stories.where(status: "done").order(:story_number)
     log("[Render] Found #{stories.count} done stories: #{stories.map { |s| "##{s.story_number} #{s.story_title}" }.join(', ')}")
+    json_stories = bulletin.master_json&.dig("stories")&.map { |s| "##{s['storyNumber']} #{s['storyTitle']} (id=#{s['storyId']})" }&.join(", ") || "none"
+    log("[Render] Master JSON stories: #{json_stories}")
     log("[Render] Downloading story inputs...")
     story_inputs = download_story_inputs(stories)
     story_inputs.each do |story_id, data|
