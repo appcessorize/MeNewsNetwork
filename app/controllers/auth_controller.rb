@@ -68,17 +68,17 @@ class AuthController < ApplicationController
   end
 
   # ══════════════════════════════════════════════════════════════════════════
-  # DEBUG LOGIN - Remove before production!
+  # DEBUG LOGIN — enabled in dev, or when ALLOW_DEBUG_LOGIN=true in env
   # ══════════════════════════════════════════════════════════════════════════
 
   # GET /auth/debug — show debug login form
   def debug_form
-    redirect_to root_path unless Rails.env.development?
+    redirect_to root_path unless debug_login_allowed?
   end
 
   # POST /auth/debug — create/find test user and log in
   def debug_login
-    return redirect_to root_path unless Rails.env.development?
+    return redirect_to root_path unless debug_login_allowed?
 
     email = params[:email].to_s.strip.downcase
     name = params[:name].to_s.strip.presence || email.split("@").first.titleize
@@ -105,5 +105,11 @@ class AuthController < ApplicationController
     end
 
     redirect_to newsroom_path, notice: "Logged in as #{user.name}"
+  end
+
+  private
+
+  def debug_login_allowed?
+    Rails.env.development? || ENV["ALLOW_DEBUG_LOGIN"] == "true"
   end
 end

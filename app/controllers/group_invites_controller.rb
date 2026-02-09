@@ -20,7 +20,7 @@ class GroupInvitesController < ApplicationController
     unless logged_in?
       session[:pending_invite_token] = @token
       # Use debug login in development for easier testing
-      redirect_to Rails.env.development? ? auth_debug_path : auth_google_path
+      redirect_to debug_login_allowed? ? auth_debug_path : auth_google_path
       return
     end
 
@@ -30,7 +30,7 @@ class GroupInvitesController < ApplicationController
   # POST /join/:token - Redeem the invite
   def create
     unless logged_in?
-      redirect_to Rails.env.development? ? auth_debug_path : auth_google_path
+      redirect_to debug_login_allowed? ? auth_debug_path : auth_google_path
       return
     end
 
@@ -52,5 +52,11 @@ class GroupInvitesController < ApplicationController
     else
       redirect_to "/friends", alert: "Could not join group. Please try again."
     end
+  end
+
+  private
+
+  def debug_login_allowed?
+    Rails.env.development? || ENV["ALLOW_DEBUG_LOGIN"] == "true"
   end
 end
