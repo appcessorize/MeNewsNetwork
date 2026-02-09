@@ -887,13 +887,27 @@ async function generateTestBulletin(bulletinId) {
   );
 
   const typing = showTypingIndicator();
-  // Show a spinner message while we wait for the server
   const bubble = typing.querySelector(".chat-bubble");
+
+  // Step 1: Poll for analysis completion (same pattern as mock_news status polling)
   if (bubble) {
-    bubble.innerHTML = `<div class="flex items-center gap-2"><span class="loading loading-spinner loading-sm"></span><span class="text-sm">Generating your bulletin...</span></div>`;
+    bubble.innerHTML = `<div class="flex items-center gap-2"><span class="loading loading-spinner loading-sm"></span><span class="text-sm">Analyzing your video...</span></div>`;
   }
 
   try {
+    const analysisReady = await pollAnalysisStatus(bubble);
+    if (!analysisReady) {
+      typing.remove();
+      await appendBotMessage("Video analysis is taking too long. Please try again from the Studio page.");
+      resetState();
+      return;
+    }
+
+    // Step 2: Build bulletin JSON + queue render (same as mock_news build + render combined)
+    if (bubble) {
+      bubble.innerHTML = `<div class="flex items-center gap-2"><span class="loading loading-spinner loading-sm"></span><span class="text-sm">Building bulletin...</span></div>`;
+    }
+
     const response = await fetch("/api/test/generate_bulletin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -907,13 +921,45 @@ async function generateTestBulletin(bulletinId) {
       return;
     }
 
-    // Poll for render completion
+    // Step 3: Poll for render completion (same as mock_news render_status polling)
     pollBulletinRender(data.bulletin_id, typing);
   } catch (err) {
     typing.remove();
     await appendBotMessage("Something went wrong generating the bulletin. Please try again.");
     resetState();
   }
+}
+
+async function pollAnalysisStatus(bubble) {
+  const maxAttempts = 120; // 4 minutes at 2s intervals
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const resp = await fetch("/api/test/bulletin_status");
+      const data = await resp.json();
+
+      if (!data.ok) continue;
+
+      const { stories_done, stories_analyzing, stories_failed, stories_total } = data;
+
+      if (bubble) {
+        const statusParts = [];
+        if (stories_done > 0) statusParts.push(`${stories_done} done`);
+        if (stories_analyzing > 0) statusParts.push(`${stories_analyzing} analyzing`);
+        if (stories_failed > 0) statusParts.push(`${stories_failed} failed`);
+        const statusText = statusParts.join(", ") || "waiting...";
+
+        bubble.innerHTML = `<div class="flex items-center gap-2"><span class="loading loading-spinner loading-sm"></span><span class="text-sm">Analyzing stories (${statusText})...</span></div>`;
+      }
+
+      if (data.all_done) {
+        return stories_done > 0;
+      }
+    } catch {
+      // Silently retry on network errors
+    }
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  return false;
 }
 
 async function pollBulletinRender(bulletinId, typing) {

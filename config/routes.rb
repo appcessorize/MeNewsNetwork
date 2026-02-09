@@ -87,6 +87,7 @@ Rails.application.routes.draw do
 
     post "bulletin/contribute",       to: "bulletin_contributions#create"
     post "test/generate_bulletin",    to: "test_demo#generate_bulletin"
+    get  "test/bulletin_status",      to: "test_demo#bulletin_status"
 
     post "stories",                  to: "stories#create"
     post "stories/:id/voice_notes",  to: "stories#add_voice_note"
