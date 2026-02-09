@@ -9,41 +9,108 @@
       <div class="join join-vertical w-full mt-2">
         <div class="collapse collapse-arrow join-item border border-base-300">
           <input type="radio" name="faq-accordion" checked="checked" />
-          <div class="collapse-title font-medium text-sm">What video formats are supported?</div>
+          <div class="collapse-title font-medium text-sm">What is Me News?</div>
           <div class="collapse-content text-sm text-base-content/60">
-            MP4, QuickTime (.mov), WebM, AVI, and MPEG formats are supported. Maximum file size is 200MB.
+            Me News is social media that feels social again. You get little updates from friends and family — packaged into a fun daily "news report" with an AI host. Instead of an endless feed, it's one shared episode for your group.
           </div>
         </div>
 
         <div class="collapse collapse-arrow join-item border border-base-300">
           <input type="radio" name="faq-accordion" />
-          <div class="collapse-title font-medium text-sm">How does the video analysis work?</div>
+          <div class="collapse-title font-medium text-sm">Why does Me News exist?</div>
           <div class="collapse-content text-sm text-base-content/60">
-            Videos are uploaded to Google's Gemini AI which analyzes them for scene descriptions, speech transcription, and sound effects. The AI generates timestamp-segmented annotations and a newsreader script.
+            <p>Because modern social media is great… and also exhausting.</p>
+            <p class="mt-2">At some point, it stopped being social and became just media: an endless scroll of content that's just interesting enough to keep you engaged, while we somehow feel more connected and more isolated at the same time.</p>
+            <p class="mt-2">Research using American National Election Studies data argues overall platform use declined from 2020 to 2024, with the youngest and oldest Americans increasingly abstaining.</p>
           </div>
         </div>
 
         <div class="collapse collapse-arrow join-item border border-base-300">
           <input type="radio" name="faq-accordion" />
-          <div class="collapse-title font-medium text-sm">What is Cloudflare Stream?</div>
+          <div class="collapse-title font-medium text-sm">What do I actually do in the app?</div>
           <div class="collapse-content text-sm text-base-content/60">
-            Cloudflare Stream provides video hosting and delivery. Videos are uploaded directly to Cloudflare, encoded for streaming, and can be embedded using their player.
+            <p>You post short videos to your friend group. Then Me News:</p>
+            <ul class="list-disc list-inside mt-1">
+              <li>turns them into a daily report (script + captions)</li>
+              <li>shares the finished episode back to the group</li>
+            </ul>
+            <p class="mt-2">It's like "Daily Dose of Internet" — but for your group.</p>
           </div>
         </div>
 
         <div class="collapse collapse-arrow join-item border border-base-300">
           <input type="radio" name="faq-accordion" />
-          <div class="collapse-title font-medium text-sm">How long are sessions kept?</div>
+          <div class="collapse-title font-medium text-sm">How is this different from a group chat?</div>
           <div class="collapse-content text-sm text-base-content/60">
-            After analyzing a video, the session is kept for 30 minutes. During this time you can ask follow-up questions about the video. After 30 minutes the session and Gemini file are automatically deleted.
+            <p>Group chats are great, but they're messy. Me News gives you:</p>
+            <ul class="list-disc list-inside mt-1">
+              <li>a shared format (a daily episode)</li>
+              <li>a reason to watch (it's short + entertaining)</li>
+              <li>a way to respond (without comment-section energy)</li>
+            </ul>
           </div>
         </div>
 
         <div class="collapse collapse-arrow join-item border border-base-300">
           <input type="radio" name="faq-accordion" />
-          <div class="collapse-title font-medium text-sm">What voices are available for text-to-speech?</div>
+          <div class="collapse-title font-medium text-sm">What's the "STOP SCROLLING" part?</div>
           <div class="collapse-content text-sm text-base-content/60">
-            30 voices are available through Google's Gemini TTS model. The default voice is Kore. You can select different voices from the dropdown after generating a newsreader script.
+            Me News isn't trying to be a feed. It's the opposite: one daily drop, then you go live your life.
+          </div>
+        </div>
+
+        <div class="collapse collapse-arrow join-item border border-base-300">
+          <input type="radio" name="faq-accordion" />
+          <div class="collapse-title font-medium text-sm">How does Me News handle the "no content = no users" problem?</div>
+          <div class="collapse-content text-sm text-base-content/60">
+            <p>Social apps hit the cold start problem (also described by the 90-9-1 participation pattern: most people watch, a few contribute). Me News tackles it like this:</p>
+            <ol class="list-decimal list-inside mt-1">
+              <li>The AI journalist looks for stories inside your circle — it asks questions and collects reactions (often via simple prompts, like replying to a message).</li>
+              <li>It's a safe space — more like a chat group. Your videos don't "escape" into the internet.</li>
+              <li>Lower friction to post — quick clips are encouraged, and using generative tools is welcomed.</li>
+              <li>The TikTok insight: add music + framing and mundane becomes watchable. A small clip feels more interesting when it's part of a "show."</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="collapse collapse-arrow join-item border border-base-300">
+          <input type="radio" name="faq-accordion" />
+          <div class="collapse-title font-medium text-sm">How do replies work?</div>
+          <div class="collapse-content text-sm text-base-content/60">
+            <p>Instead of waiting for comments, Me News asks the group questions about the videos — like a playful interview. You can reply:</p>
+            <ul class="list-disc list-inside mt-1">
+              <li>by text (chat-style)</li>
+              <li>or by sending a video response</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="collapse collapse-arrow join-item border border-base-300">
+          <input type="radio" name="faq-accordion" />
+          <div class="collapse-title font-medium text-sm">Is it private?</div>
+          <div class="collapse-content text-sm text-base-content/60">
+            Yes — the default is friends + family only. It's designed to feel closer to a group chat than a public timeline (no viral mechanics, no strangers, no performance).
+          </div>
+        </div>
+
+        <div class="collapse collapse-arrow join-item border border-base-300">
+          <input type="radio" name="faq-accordion" />
+          <div class="collapse-title font-medium text-sm">Is Me News "AI-powered social media"?</div>
+          <div class="collapse-content text-sm text-base-content/60">
+            That's the bet: the AI isn't the content — your friends are the content. The AI is the producer/host that turns small moments into something you'll actually watch.
+          </div>
+        </div>
+
+        <div class="collapse collapse-arrow join-item border border-base-300">
+          <input type="radio" name="faq-accordion" />
+          <div class="collapse-title font-medium text-sm">What's next?</div>
+          <div class="collapse-content text-sm text-base-content/60">
+            <ul class="list-disc list-inside">
+              <li>Better UI</li>
+              <li>More ways to interact + more AI generated content</li>
+              <li>Upgraded visuals</li>
+              <li>Tighter "interview" flow so responses feel effortless</li>
+            </ul>
           </div>
         </div>
       </div>
