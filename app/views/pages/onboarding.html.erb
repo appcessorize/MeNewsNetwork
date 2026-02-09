@@ -1,0 +1,305 @@
+<% content_for(:title) { "Me News — About" } %>
+
+<style>
+  #onboarding-scroller {
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    cursor: grab;
+  }
+  #onboarding-scroller > section {
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    flex: 0 0 100%;
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  #onboarding-scroller.is-dragging { cursor: grabbing; }
+  body.no-select, body.no-select * {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+</style>
+
+<div class="relative h-screen w-screen overflow-hidden" style="font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+
+  <%# Back button %>
+  <a href="<%= logged_in? ? '/newsroom' : '/' %>" class="fixed top-4 left-4 z-50 btn btn-ghost btn-sm btn-circle bg-base-100/80 backdrop-blur shadow">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  </a>
+
+  <main
+    id="onboarding-scroller"
+    class="no-scrollbar flex flex-row flex-nowrap h-screen w-screen overflow-x-auto overflow-y-hidden scroll-smooth"
+    aria-label="About Me News"
+  >
+
+    <%# Page 1: The Problem %>
+    <section class="h-screen shrink-0 flex items-center justify-center p-6 bg-gradient-to-br from-slate-800 to-slate-950">
+      <div class="max-w-md w-full">
+        <div class="card bg-base-100/90 shadow-xl">
+          <div class="card-body">
+            <h1 class="text-3xl font-black italic">Me News</h1>
+            <p class="text-lg font-semibold text-primary mt-1">The first AI-powered Social Media</p>
+            <p class="opacity-70 mt-4 leading-relaxed">
+              Social media can be overwhelming. When did it stop being <em>social</em> and become just <em>media</em>?
+            </p>
+            <p class="opacity-70 mt-2 leading-relaxed">
+              Swipe to learn more.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <%# Page 2: The Isolation %>
+    <section class="h-screen shrink-0 flex items-center justify-center p-6 bg-gradient-to-br from-indigo-700 to-slate-950">
+      <div class="max-w-md w-full">
+        <div class="card bg-base-100/90 shadow-xl">
+          <div class="card-body">
+            <h2 class="text-3xl font-bold">The endless feed</h2>
+            <p class="opacity-70 mt-3 leading-relaxed">
+              An endless feed of content that's just interesting enough to keep you engaged.
+            </p>
+            <p class="opacity-70 mt-2 leading-relaxed">
+              We're more connected but more isolated than ever before.
+            </p>
+            <div class="mt-4 flex flex-wrap gap-2">
+              <span class="badge badge-outline badge-lg">Doomscrolling</span>
+              <span class="badge badge-outline badge-lg">Algorithms</span>
+              <span class="badge badge-outline badge-lg">Isolation</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <%# Page 3: Remember When %>
+    <section class="h-screen shrink-0 flex items-center justify-center p-6 bg-gradient-to-br from-emerald-700 to-slate-950">
+      <div class="max-w-md w-full">
+        <div class="card bg-base-100/90 shadow-xl">
+          <div class="card-body">
+            <h2 class="text-3xl font-bold">Remember when?</h2>
+            <p class="opacity-70 mt-3 leading-relaxed">
+              Remember when you went on Facebook to see what your friends had been doing?
+            </p>
+            <p class="opacity-70 mt-2 leading-relaxed">
+              People shared funny, interesting moments of their lives. Made plans. Stayed connected.
+            </p>
+            <div class="mt-4 flex flex-wrap gap-2">
+              <span class="badge badge-success badge-lg">Friends</span>
+              <span class="badge badge-success badge-lg">Moments</span>
+              <span class="badge badge-success badge-lg">Connection</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <%# Page 4: How It Works %>
+    <section class="h-screen shrink-0 flex items-center justify-center p-6 bg-gradient-to-br from-fuchsia-700 to-slate-950">
+      <div class="max-w-md w-full">
+        <div class="card bg-base-100/90 shadow-xl">
+          <div class="card-body">
+            <h2 class="text-3xl font-bold">How it works</h2>
+            <ul class="mt-4 space-y-3">
+              <li class="flex items-start gap-3">
+                <span class="badge badge-primary badge-lg shrink-0">1</span>
+                <span class="opacity-80">Share a video of something from your day</span>
+              </li>
+              <li class="flex items-start gap-3">
+                <span class="badge badge-primary badge-lg shrink-0">2</span>
+                <span class="opacity-80">AI turns it into a news story about you and your friends</span>
+              </li>
+              <li class="flex items-start gap-3">
+                <span class="badge badge-primary badge-lg shrink-0">3</span>
+                <span class="opacity-80">A personalised news bulletin is generated daily</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <%# Page 5: Get Started %>
+    <section class="h-screen shrink-0 flex items-center justify-center p-6 bg-gradient-to-br from-sky-700 to-slate-950">
+      <div class="max-w-md w-full">
+        <div class="card bg-base-100/90 shadow-xl">
+          <div class="card-body text-center">
+            <h2 class="text-3xl font-bold">Your news. Your friends.</h2>
+            <p class="opacity-70 mt-3 leading-relaxed">
+              No algorithms. No strangers. Just the people you care about, turned into something worth watching.
+            </p>
+            <div class="mt-6">
+              <% if logged_in? %>
+                <a href="/newsroom" class="btn btn-primary btn-lg w-full">Go to Newsroom</a>
+              <% else %>
+                <button id="btn-google-login-onboarding" type="button" class="btn btn-lg bg-white text-black border-[#e5e5e5] shadow-md gap-3 text-base w-full">
+                  <svg aria-label="Google logo" width="24" height="24" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+                    <g>
+                      <path d="m0 0H512V512H0" fill="#fff"></path>
+                      <path fill="#34a853" d="M153 292c30 82 118 95 171 60h62v48A192 192 0 0190 341"></path>
+                      <path fill="#4285f4" d="m386 400a140 175 0 0053-179H260v74h102q-7 37-38 57"></path>
+                      <path fill="#fbbc02" d="m90 341a208 200 0 010-171l63 49q-12 37 0 73"></path>
+                      <path fill="#ea4335" d="m153 219c22-69 116-109 179-50l55-54c-78-75-230-72-297 55"></path>
+                    </g>
+                  </svg>
+                  Get Started with Google
+                </button>
+              <% end %>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <%# Bottom Controls %>
+  <footer class="fixed inset-x-0 bottom-0 p-4 z-40">
+    <div class="mx-auto max-w-md">
+      <div class="rounded-2xl bg-base-100/90 shadow-xl backdrop-blur px-4 py-3 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2" aria-label="Page markers" id="onboarding-dots"></div>
+        <button id="onboarding-next" class="btn btn-primary btn-sm">Next</button>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<script>
+(function () {
+  const scroller = document.getElementById('onboarding-scroller');
+  const dots = document.getElementById('onboarding-dots');
+  const nextBtn = document.getElementById('onboarding-next');
+  if (!scroller || !dots || !nextBtn) return;
+
+  const pages = Array.from(scroller.querySelectorAll('section'));
+  const pageCount = pages.length;
+
+  // Build dots
+  for (let i = 0; i < pageCount; i++) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-ghost btn-xs !px-2';
+    btn.setAttribute('aria-label', 'Go to page ' + (i + 1));
+    btn.setAttribute('data-page', String(i));
+    btn.innerHTML = '<span class="inline-block h-2 w-2 rounded-full bg-base-content/30"></span>';
+    btn.addEventListener('click', function() { scrollToPage(i); });
+    dots.appendChild(btn);
+  }
+
+  function setActiveDot(index) {
+    Array.from(dots.children).forEach(function(btn, i) {
+      var dot = btn.querySelector('span');
+      if (!dot) return;
+      if (i === index) {
+        dot.className = 'inline-block h-2 w-6 rounded-full bg-primary transition-all';
+        btn.classList.add('btn-active');
+      } else {
+        dot.className = 'inline-block h-2 w-2 rounded-full bg-base-content/30 transition-all';
+        btn.classList.remove('btn-active');
+      }
+    });
+    nextBtn.textContent = index >= pageCount - 1 ? 'Done' : 'Next';
+  }
+
+  function currentIndexFromScroll() {
+    var w = scroller.clientWidth || window.innerWidth;
+    return Math.max(0, Math.min(pageCount - 1, Math.round(scroller.scrollLeft / w)));
+  }
+
+  function scrollToPage(index) {
+    var clamped = Math.max(0, Math.min(pageCount - 1, index));
+    var target = pages[clamped];
+    if (target) target.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+  }
+
+  nextBtn.addEventListener('click', function() {
+    var idx = currentIndexFromScroll();
+    if (idx >= pageCount - 1) {
+      // Done — go to newsroom or home
+      window.location.href = '<%= logged_in? ? "/newsroom" : "/" %>';
+    } else {
+      scrollToPage(idx + 1);
+    }
+  });
+
+  // Google login button on last slide
+  var googleBtn = document.getElementById('btn-google-login-onboarding');
+  if (googleBtn) {
+    googleBtn.addEventListener('click', function() {
+      window.location.href = '/auth/google';
+    });
+  }
+
+  // IntersectionObserver for dot updates
+  var io = new IntersectionObserver(function(entries) {
+    var visible = entries
+      .filter(function(e) { return e.isIntersecting; })
+      .sort(function(a, b) { return b.intersectionRatio - a.intersectionRatio; })[0];
+    if (!visible) return;
+    var idx = pages.indexOf(visible.target);
+    if (idx !== -1) setActiveDot(idx);
+  }, { root: scroller, threshold: [0.5, 0.65, 0.8] });
+
+  pages.forEach(function(p) { io.observe(p); });
+
+  // Fallback scroll listener
+  var scrollTimer = null;
+  scroller.addEventListener('scroll', function() {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(function() { setActiveDot(currentIndexFromScroll()); }, 80);
+  }, { passive: true });
+
+  // Desktop drag-to-scroll
+  var isDragging = false, dragStartX = 0, dragStartScrollLeft = 0, maxDragDelta = 0;
+
+  scroller.addEventListener('pointerdown', function(e) {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    if (e.target.closest('button,a,input')) return;
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartScrollLeft = scroller.scrollLeft;
+    maxDragDelta = 0;
+    scroller.classList.add('is-dragging');
+    document.body.classList.add('no-select');
+    scroller.style.scrollSnapType = 'none';
+    try { scroller.setPointerCapture(e.pointerId); } catch(_) {}
+  });
+
+  scroller.addEventListener('pointermove', function(e) {
+    if (!isDragging) return;
+    var dx = e.clientX - dragStartX;
+    maxDragDelta = Math.max(maxDragDelta, Math.abs(dx));
+    scroller.scrollLeft = dragStartScrollLeft - dx;
+    if (maxDragDelta > 4) e.preventDefault();
+  });
+
+  function endDrag(e) {
+    if (!isDragging) return;
+    isDragging = false;
+    scroller.classList.remove('is-dragging');
+    document.body.classList.remove('no-select');
+    scroller.style.scrollSnapType = '';
+    if (maxDragDelta > 6) scrollToPage(currentIndexFromScroll());
+    try { scroller.releasePointerCapture(e.pointerId); } catch(_) {}
+  }
+
+  scroller.addEventListener('pointerup', endDrag);
+  scroller.addEventListener('pointercancel', endDrag);
+  scroller.addEventListener('lostpointercapture', endDrag);
+
+  // Keyboard nav
+  window.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight') scrollToPage(currentIndexFromScroll() + 1);
+    else if (e.key === 'ArrowLeft') scrollToPage(currentIndexFromScroll() - 1);
+  });
+
+  setActiveDot(0);
+})();
+</script>

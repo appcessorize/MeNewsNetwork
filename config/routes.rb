@@ -7,6 +7,7 @@ Rails.application.routes.draw do
   get "settings", to: "pages#settings"
   get "studio",   to: "studio#show"
   get "debug",    to: "debug#show"
+  get "onboarding", to: "pages#onboarding"
   get "terms",    to: "pages#terms"
   get "privacy",  to: "pages#privacy"
 

@@ -28,6 +28,7 @@
       <a href="/stories" class="btn btn-ghost btn-sm <%= 'btn-active' if current == 'stories' %>">Stories</a>
       <a href="/friends" class="btn btn-ghost btn-sm <%= 'btn-active' if current == 'friends' %>">Friends</a>
       <a href="/studio" class="btn btn-ghost btn-sm <%= 'btn-active' if current == 'studio' %>">Studio</a>
+      <a href="/onboarding" class="btn btn-ghost btn-sm <%= 'btn-active' if current == 'onboarding' %>">About</a>
       <% if current_user&.email == ENV.fetch("ADMIN_EMAIL", nil) %>
         <a href="/debug" class="btn btn-ghost btn-sm <%= 'btn-active' if current == 'debug' %>">Debug</a>
       <% end %>
@@ -118,6 +119,15 @@
           </a>
         </li>
       <% end %>
+
+      <li>
+        <a href="/onboarding" class="<%= 'menu-active' if current == 'onboarding' %>" onclick="document.getElementById('mobile-menu').classList.add('hidden')">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          About
+        </a>
+      </li>
 
       <div class="divider my-2"></div>
 

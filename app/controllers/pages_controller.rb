@@ -16,6 +16,9 @@ class PagesController < ApplicationController
   def settings
   end
 
+  def onboarding
+  end
+
   def terms
   end
 
