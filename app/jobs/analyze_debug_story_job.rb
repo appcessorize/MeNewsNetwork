@@ -13,11 +13,13 @@ class AnalyzeDebugStoryJob < ApplicationJob
     Rails.logger.info("[debug_news] Job: Analyzing story ##{story.story_number} (id=#{story.id})")
 
     # 1. Upload to Gemini File API
-    Rails.logger.info("[debug_news] Job step 1: Uploading to Gemini File API...")
+    staging_size = File.size(staging_path)
+    declared_mime = story.content_type || "video/mp4"
+    Rails.logger.info("[debug_news] Job step 1: Uploading to Gemini File API — file=#{staging_path}, size=#{(staging_size / 1e6).round(2)} MB, declared_mime=#{declared_mime}")
     file_manager = Gemini::FileManager.new
     gemini_file = file_manager.upload_and_wait(
       staging_path,
-      mime_type: story.content_type || "video/mp4",
+      mime_type: declared_mime,
       display_name: "debug_story_#{story.story_number}"
     )
     elapsed1 = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0).round(1)
@@ -77,7 +79,8 @@ class AnalyzeDebugStoryJob < ApplicationJob
     Rails.logger.info("[debug_news] Story ##{story.story_number} fully processed in #{total}s")
 
   rescue => e
-    Rails.logger.error("[debug_news] Job failed for story ##{story.id}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
+    file_size_info = staging_path && File.exist?(staging_path) ? " (file_size=#{(File.size(staging_path) / 1e6).round(2)} MB)" : ""
+    Rails.logger.error("[debug_news] Job failed for story ##{story.id}#{file_size_info}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
     story&.update(status: "failed", error_message: e.message) if story&.persisted?
     raise
   end
@@ -93,7 +96,12 @@ class AnalyzeDebugStoryJob < ApplicationJob
       ext = File.extname(story.original_filename || ".mp4")
       local_path = tmp_dir.join("story_#{story.id}_r2#{ext}").to_s
       r2.download(story.r2_video_key, local_path)
-      Rails.logger.info("[debug_news] Downloaded from R2: #{story.r2_video_key}")
+      file_size = File.size(local_path)
+      first_bytes = File.binread(local_path, 16).bytes.map { |b| b.to_s(16).rjust(2, "0") }.join(" ")
+      Rails.logger.info("[debug_news] Downloaded from R2: #{story.r2_video_key} → #{(file_size / 1e6).round(2)} MB, first bytes: [#{first_bytes}]")
+      if file_size == 0
+        raise "R2 download produced empty file for story ##{story.id} (key: #{story.r2_video_key})"
+      end
       return local_path
     end
 

@@ -388,7 +388,7 @@ function startStatusPolling(statusList, fileMap) {
 
         if (s.status === "analyzing") allDone = false;
         if (s.status === "failed" && s.error_message) {
-          log(`  ↳ Story ${s.story_number} failed: ${s.error_message}`);
+          log(`  ↳ Story ${s.story_number} FAILED: ${s.error_message}`);
         }
       });
 
@@ -525,7 +525,7 @@ function storyStatusHtml(s) {
       ${s.filename ? `<span class="text-xs text-base-content/40">(${escapeHtml(s.filename)})</span>` : ""}
       ${progressBar}
     </span>
-    ${s.error_message ? `<span class="text-xs text-error max-w-xs truncate">${escapeHtml(s.error_message)}</span>` : ""}
+    ${s.error_message ? `<span class="text-xs text-error break-all">${escapeHtml(s.error_message)}</span>` : ""}
   `;
 }
 

@@ -82,7 +82,7 @@ module Gemini
       result = upload_file(file_path, mime_type: mime_type, display_name: display_name)
       file = result[:file]
 
-      Rails.logger.info("[gemini] File uploaded: #{file[:name]}, state: #{file[:state]}")
+      Rails.logger.info("[gemini] File uploaded: name=#{file[:name]}, state=#{file[:state]}, mimeType=#{file[:mimeType]}, sizeBytes=#{file[:sizeBytes]}, uri=#{file[:uri]}")
 
       poll_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       polls = 0
@@ -96,10 +96,15 @@ module Gemini
         Rails.logger.info("[gemini] File still processing (#{elapsed.round}s elapsed, poll ##{polls}), waiting 3s...")
         sleep(3)
         file = get_file(file[:name])
+        if file[:error]
+          Rails.logger.warn("[gemini] Poll ##{polls} error field present: #{file[:error].inspect}")
+        end
       end
 
       unless file[:state] == "ACTIVE"
-        raise "File processing failed. State: #{file[:state]}"
+        Rails.logger.error("[gemini] File processing FAILED. Full response: state=#{file[:state]}, error=#{file[:error].inspect}, mimeType=#{file[:mimeType]}, sizeBytes=#{file[:sizeBytes]}, videoMetadata=#{file[:videoMetadata].inspect}, name=#{file[:name]}")
+        error_detail = file[:error]&.dig(:message) || file[:error].inspect
+        raise "File processing failed. State: #{file[:state]}. Error: #{error_detail}"
       end
 
       Rails.logger.info("[gemini] File is ACTIVE after #{polls} polls")
