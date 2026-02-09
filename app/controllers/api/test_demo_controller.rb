@@ -25,13 +25,25 @@ module Api
       seeded = TestBulletinSeeder.new(bulletin).seed!
       Rails.logger.info("[TestDemo] Seeded #{seeded} demo stories") if seeded > 0
 
-      # Build the bulletin JSON (same as POST /debug/mock_news/bulletins/:id/build)
+      # Step 1: Build the bulletin JSON (same as POST /debug/mock_news/bulletins/:id/build)
       Rails.logger.info("[TestDemo] Building bulletin ##{bulletin.id}...")
       BulletinBuilder.new(bulletin).build!
-      Rails.logger.info("[TestDemo] Bulletin ##{bulletin.id} built successfully")
+      bulletin.reload
+      Rails.logger.info("[TestDemo] Bulletin ##{bulletin.id} built, status=#{bulletin.status}")
 
-      # Start render (same as POST /debug/mock_news/bulletins/:id/render)
-      bulletin.update!(render_status: "queued", render_progress: 0, render_step: "Queued", render_error: nil)
+      unless bulletin.status == "ready"
+        return render json: { ok: false, error: "Bulletin build failed (status: #{bulletin.status})" }, status: :unprocessable_entity
+      end
+
+      # Step 2: Start render (same as POST /debug/mock_news/bulletins/:id/render)
+      # Clear old render state completely so client doesn't see stale video
+      bulletin.update!(
+        render_status: "queued",
+        render_progress: 0,
+        render_step: "Queued",
+        render_error: nil,
+        rendered_video_uid: nil
+      )
       RenderBulletinJob.perform_later(bulletin.id)
       Rails.logger.info("[TestDemo] Render queued for bulletin ##{bulletin.id}")
 
