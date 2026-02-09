@@ -14,7 +14,6 @@ class BulletinBuilder
       Rails.logger.warn("[BulletinBuilder] Building bulletin with #{failed} failed stories")
     end
 
-    generate_weather_tts!
     polish_scripts!
     generate_welcome_closing!
     assemble_and_save!
@@ -43,7 +42,7 @@ class BulletinBuilder
   end
 
   def polish_scripts!
-    done_stories = @bulletin.debug_stories.where(status: "done").order(:story_number)
+    done_stories = @bulletin.debug_stories.where(status: "done").where.not(user_id: nil).order(:story_number)
     stories_for_polish = done_stories.map { |s| { title: s.story_title, intro_text: s.intro_text } }
 
     return unless stories_for_polish.length > 1
@@ -84,7 +83,7 @@ class BulletinBuilder
   end
 
   def generate_welcome_closing!
-    done_stories = @bulletin.debug_stories.where(status: "done").order(:story_number)
+    done_stories = @bulletin.debug_stories.where(status: "done", user_id: nil).order(:story_number)
     story_summaries = done_stories.reload.map { |s| { emoji: s.story_emoji, title: s.story_title } }
 
     Rails.logger.info("[BulletinBuilder] Generating welcome/closing scripts...")

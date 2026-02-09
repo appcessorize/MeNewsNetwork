@@ -2,11 +2,8 @@
 # Copies story records from the source bulletin, reusing R2 keys and CF Stream UIDs
 # so the renderer can download the original video/TTS files.
 class TestBulletinSeeder
-  # Source story IDs from bulletin 67 (created via debug/mock_news)
-  SOURCE_STORY_IDS = [125, 126, 127, 128, 129].freeze
-
-  # How many seed stories to add (pick a random subset to keep bulletins short)
-  SEED_COUNT = 3
+  # Source story IDs from bulletin 68 (created via debug/mock_news)
+  SOURCE_STORY_IDS = [137, 138, 139].freeze
 
   def initialize(bulletin)
     @bulletin = bulletin
@@ -24,14 +21,11 @@ class TestBulletinSeeder
       return 0
     end
 
-    # Pick a random subset
-    selected = source_stories.to_a.sample(SEED_COUNT)
-
     # Renumber: user's stories keep their numbers, seed stories fill in around them
     max_story_number = @bulletin.debug_stories.maximum(:story_number).to_i
 
     seeded = 0
-    selected.each_with_index do |source, idx|
+    source_stories.each_with_index do |source, idx|
       new_number = max_story_number + idx + 1
 
       new_story = @bulletin.debug_stories.create!(

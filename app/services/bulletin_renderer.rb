@@ -36,16 +36,13 @@ class BulletinRenderer
     # Phase 0: Download all inputs from R2
     log("[Render] Downloading bumper...")
     bumper_path = download_bumper
-    stories = bulletin.debug_stories.where(status: "done").order(:story_number)
+    stories = bulletin.debug_stories.where(status: "done", user_id: nil).order(:story_number)
     log("[Render] Found #{stories.count} done stories: #{stories.map { |s| "##{s.story_number} #{s.story_title}" }.join(', ')}")
     log("[Render] Downloading story inputs...")
     story_inputs = download_story_inputs(stories)
     story_inputs.each do |story_id, data|
       log("[Render] Story #{story_id}: video=#{data[:video].present?}, tts=#{data[:tts].present?}, poster=#{data[:poster].present?}")
     end
-    log("[Render] Downloading weather inputs...")
-    weather_inputs = download_weather_inputs
-
     update_progress(10, "Rendering segments")
 
     # Phase 1: Render individual segments
@@ -84,19 +81,18 @@ class BulletinRenderer
       log_segment_duration(studio_seg, "studio story #{story.story_number}")
       segment_paths << { path: studio_seg, type: :studio }
 
-      # User video segment — temporarily skipped to isolate rendering issues
-      log("[Render] Skipping user video for story #{story.story_number} (temporarily disabled)")
+      # User video segment
+      if inputs[:video]
+        log("[Render] Rendering user video for story #{story.story_number}...")
+        video_seg = render_user_video_segment(inputs[:video], story)
+        log_segment_duration(video_seg, "user video story #{story.story_number}")
+        segment_paths << { path: video_seg, type: :user_video }
+      else
+        log("[Render] No video file for story #{story.story_number}, skipping user video segment")
+      end
     end
 
-    # Weather segment
-    if weather_inputs[:tts]
-      update_progress(62, "Rendering weather segment")
-      weather_seg = render_weather_segment(weather_inputs, studio_bg)
-      log_segment_duration(weather_seg, "weather")
-      segment_paths << { path: weather_seg, type: :studio }
-    end
-
-    # Closing segment (after weather, before closing bumper)
+    # Closing segment (before closing bumper)
     if closing_inputs[:tts]
       update_progress(66, "Rendering closing segment")
       closing_seg = render_closing_segment(closing_inputs)
