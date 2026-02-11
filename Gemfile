@@ -29,7 +29,7 @@ gem "active_storage_db"
 gem "resend"
 
 # Image processing (studio frame compositing)
-gem "mini_magick", "~> 4.12"
+gem "mini_magick", "~> 5.3"
 
 # S3-compatible client for Cloudflare R2
 gem "aws-sdk-s3", "~> 1.0"
