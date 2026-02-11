@@ -12,7 +12,7 @@ gem "importmap-rails"
 gem "tailwindcss-rails"
 
 # HTTP client for Gemini API and Cloudflare
-gem "faraday", "~> 2.12"
+gem "faraday", "~> 2.14"
 gem "faraday-multipart", "~> 1.1"
 
 # Load environment variables from .env

@@ -128,7 +128,7 @@ GEM
     erubi (1.13.1)
     et-orbi (1.4.0)
       tzinfo
-    faraday (2.14.0)
+    faraday (2.14.1)
       faraday-net_http (>= 2.0, < 3.5)
       json
       logger
@@ -157,7 +157,7 @@ GEM
       rdoc (>= 4.0.0)
       reline (>= 0.4.2)
     jmespath (1.6.2)
-    json (2.18.0)
+    json (2.18.1)
     kamal (2.10.1)
       activesupport (>= 7.0)
       base64 (~> 0.2)
@@ -401,7 +401,7 @@ DEPENDENCIES
   bundler-audit
   debug
   dotenv-rails (~> 3.1)
-  faraday (~> 2.12)
+  faraday (~> 2.14)
   faraday-multipart (~> 1.1)
   importmap-rails
   kamal
